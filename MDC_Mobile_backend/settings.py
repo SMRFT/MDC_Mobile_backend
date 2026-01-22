@@ -83,7 +83,7 @@ WSGI_APPLICATION = 'MDC_Mobile_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'djongo',
-        'NAME': os.getenv('Milestone'),
+        'NAME': 'Milestone',
         'ENFORCE_SCHEMA': False,
         'CLIENT': {
             'host': os.getenv('GLOBAL_DB_HOST'),
