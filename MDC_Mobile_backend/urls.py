@@ -18,6 +18,6 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('_B_A_C_K_E_N_D/MDC_Mobile_App/', include('MDC_Backend.urls')),
+    path('_b_a_c_k_e_n_d/MDC_Mobile_App/', include('MDC_Backend.urls')),
 ]
 
