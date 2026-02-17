@@ -1,4 +1,15 @@
-from django.db import models
+from djongo import models
+from djongo.models import ObjectIdField
+from django.db import transaction
+
+class AuditModel(models.Model):
+    created_by = models.CharField(max_length=100, blank=True, null=True)
+    created_date = models.DateTimeField(auto_now_add=True)
+    lastmodified_by = models.CharField(max_length=100, blank=True, null=True)
+    lastmodified_date = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        abstract = True
 
 class Registration(models.Model):
     name_of_child = models.CharField(max_length=200)
@@ -48,3 +59,24 @@ class PatientAttendance(models.Model):
 
     def __str__(self):
         return f"Attendance for {self.registration_number} on {self.attendance_date}"
+
+class GoalsAssessment(AuditModel):   
+    _id = models.ObjectIdField(primary_key=True)
+
+    registration_number = models.CharField(max_length=50)
+    date = models.DateField()
+    deadline = models.DateField()
+    goals = models.JSONField(default=list, blank=True)
+    parent_comments = models.TextField(blank=True, null=True)
+    comments = models.TextField(blank=True, null=True)
+    recommendations = models.TextField(blank=True, null=True)
+    refference = models.CharField(max_length=500,blank=True, null=True)
+    goalsphoto = models.JSONField(default=list, blank=True)
+    goalsvideo = models.JSONField(default=list, blank=True)
+    
+    class Meta:
+        unique_together = ('registration_number', 'date')
+        db_table = 'milestone_backend_goalsassessment'
+    def __str__(self):
+        return f"{self.registration_number} - {self.date}"
+    
