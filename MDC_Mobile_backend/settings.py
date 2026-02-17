@@ -83,10 +83,10 @@ WSGI_APPLICATION = 'MDC_Mobile_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'djongo',
-        'NAME': os.getenv('GLOBAL_DB_NAME', 'patient_db'),
+        'NAME': os.getenv('GLOBAL_DB_NAME'),
         'ENFORCE_SCHEMA': False,
         'CLIENT': {
-            'host': os.getenv('GLOBAL_DB_HOST', 'mongodb://localhost:27017/'),
+            'host': os.getenv('GLOBAL_DB_HOST'),
         }
     }
 }
@@ -149,3 +149,8 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Increase upload limits for large videos
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
+
