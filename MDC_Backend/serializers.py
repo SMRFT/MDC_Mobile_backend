@@ -1,13 +1,15 @@
 from rest_framework import serializers
-from .models import Registration, PatientAttendance, GoalsAssessment
+from .models import Registration, PatientAttendance, GoalsAssessment, leaveform
 import json
 
 class RegistrationSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(required=False)
     class Meta:
         model = Registration
         fields = '__all__'
 
 class PatientAttendanceSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(required=False)
     class Meta:
         model = PatientAttendance
         fields = '__all__'
@@ -40,6 +42,7 @@ class CleanJSONField(serializers.JSONField):
         return convert(value)
 
 class GoalsAssessmentSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(required=False)
     # Override JSONFields to use custom field that handles OrderedDicts
     goals = CleanJSONField(required=False)
     goalsphoto = CleanJSONField(required=False)
@@ -47,4 +50,10 @@ class GoalsAssessmentSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = GoalsAssessment
+        fields = '__all__'
+
+class LeaveFormSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(required=False)
+    class Meta:
+        model = leaveform
         fields = '__all__'
