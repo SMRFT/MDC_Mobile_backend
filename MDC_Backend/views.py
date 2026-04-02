@@ -39,8 +39,37 @@ class PatientSearchView(APIView):
         except Registration.DoesNotExist:
             return Response({"error": "Patient not found"}, status=status.HTTP_404_NOT_FOUND)
 
-from .models import GoalsAssessment
-from .serializers import GoalsAssessmentSerializer
+from .models import GoalsAssessment, leaveform
+from .serializers import GoalsAssessmentSerializer, LeaveFormSerializer
+
+class LeaveFormView(APIView):
+    def get(self, request):
+        reg_no = request.query_params.get('reg_no')
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+        
+        if not reg_no:
+            return Response({"error": "Registration number is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        leaves = leaveform.objects.filter(registration_number=reg_no)
+        
+        if month and month != 'All':
+            # month should be 1-12
+            leaves = leaves.filter(leave_date__month=month)
+        
+        if year:
+            leaves = leaves.filter(leave_date__year=year)
+            
+        serializer = LeaveFormSerializer(leaves.order_by('-leave_date'), many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = LeaveFormSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 import gridfs
 import certifi
 from bson.objectid import ObjectId
