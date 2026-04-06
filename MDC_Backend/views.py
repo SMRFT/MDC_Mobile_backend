@@ -1,7 +1,7 @@
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import Registration, PatientAttendance
+from .models import Registration, PatientAttendance, appusers
 from .serializers import RegistrationSerializer, PatientAttendanceSerializer
 import os
 import traceback
@@ -36,8 +36,83 @@ class PatientSearchView(APIView):
         except Registration.DoesNotExist:
             return Response({"error": "Patient not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        except Registration.DoesNotExist:
-            return Response({"error": "Patient not found"}, status=status.HTTP_404_NOT_FOUND)
+class PatientPhoneSearchView(APIView):
+    def get(self, request):
+        phone = request.query_params.get('phone')
+        password = request.query_params.get('password')
+        
+        if not phone or not password:
+            return Response({"error": "Phone number and password are required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate against appusers
+        matched_users = appusers.objects.filter(mobile_number=phone, password=password)
+        
+        if not matched_users.exists():
+            return Response({"error": "Invalid credentials. Please check your mobile number and password."}, status=status.HTTP_401_UNAUTHORIZED)
+            
+        data = []
+        for user in matched_users:
+            try:
+                reg = Registration.objects.get(registration_number=user.reg_no)
+                data.append({
+                    "id": str(user.reg_no),
+                    "name": reg.name_of_child,
+                    "registration_number": reg.registration_number
+                })
+            except Registration.DoesNotExist:
+                data.append({
+                    "id": str(user.reg_no),
+                    "name": "Child Record Missing",
+                    "registration_number": user.reg_no
+                })
+            
+        return Response(data)
+
+class RegisterUserView(APIView):
+    def post(self, request):
+        reg_no = request.data.get('reg_no')
+        mobile = request.data.get('mobile')
+        email = request.data.get('email', '')
+        password = request.data.get('password')
+        
+        if not reg_no or not mobile or not password:
+            return Response({"error": "Registration Number, Mobile, and Password are required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Ensure the user doesn't already exist
+        if appusers.objects.filter(reg_no=reg_no).exists():
+            return Response({"error": "This Registration Number is already registered."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Create the appuser record
+            name = request.data.get('name') # Optional but good to pass
+            app_user = appusers.objects.create(
+                reg_no=reg_no,
+                mobile_number=mobile,
+                email=email,
+                password=password
+            )
+            return Response({"message": "User registered successfully", "reg_no": app_user.reg_no}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ChangePasswordView(APIView):
+    def post(self, request):
+        mobile = request.data.get('mobile')
+        old_password = request.data.get('old_password')
+        new_password = request.data.get('new_password')
+        
+        if not mobile or not old_password or not new_password:
+            return Response({"error": "Mobile, Old Password, and New Password are required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            user = appusers.objects.get(mobile_number=mobile, password=old_password)
+            user.password = new_password
+            user.save()
+            return Response({"message": "Password changed successfully"})
+        except appusers.DoesNotExist:
+            return Response({"error": "Invalid current credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 from .models import GoalsAssessment, leaveform
 from .serializers import GoalsAssessmentSerializer, LeaveFormSerializer
