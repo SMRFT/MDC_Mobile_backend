@@ -1,10 +1,13 @@
 from django.urls import path
-from .views import PatientList, PatientDetail, PatientSearchView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView
+from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView
 
 urlpatterns = [
     path('patients/', PatientList.as_view(), name='patient-list'),
     path('patients/<int:pk>/', PatientDetail.as_view(), name='patient-detail'),
     path('search/', PatientSearchView.as_view(), name='patient-search'),
+    path('search-phone/', PatientPhoneSearchView.as_view(), name='patient-search-phone'),
+    path('register-user/', RegisterUserView.as_view(), name='register-user'),
+    path('change-password/', ChangePasswordView.as_view(), name='change-password'),
     path('goals/', GoalsAssessmentView.as_view(), name='goals-list-create'),
     path('goals/update/<str:pk>/', GoalsAssessmentDetailView.as_view(), name='goals-update'),
     path('leave/', LeaveFormView.as_view(), name='leave-form'),

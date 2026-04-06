@@ -94,3 +94,15 @@ class leaveform(AuditModel):
         db_table = 'milestone_backend_leaveform'
     def __str__(self):
         return f"{self.registration_number} - {self.leave_date}"
+
+class appusers(AuditModel):
+    reg_no = models.CharField(max_length=100,primary_key=True)
+    mobile_number = models.CharField(max_length=100)
+    email = models.EmailField(null=True, blank=True)
+    password = models.CharField(max_length=100)
+    previous_password = models.CharField(max_length=100,null=True, blank=True)
+    
+    class Meta:
+        db_table = 'milestone_backend_appusers'
+    def __str__(self):
+        return self.reg_no
