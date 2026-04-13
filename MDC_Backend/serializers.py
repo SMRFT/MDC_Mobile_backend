@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Registration, PatientAttendance, GoalsAssessment, leaveform
+from .models import Registration, PatientAttendance, GoalsAssessment, leaveform, DevelopmentGoals
 import json
 
 class RegistrationSerializer(serializers.ModelSerializer):
@@ -31,6 +31,8 @@ class CleanJSONField(serializers.JSONField):
         return super().to_internal_value(cleaned_data)
     
     def to_representation(self, value):
+        if value is None:
+            return value
         # Also clean when reading from database
         def convert(obj):
             if isinstance(obj, dict):
@@ -52,8 +54,16 @@ class GoalsAssessmentSerializer(serializers.ModelSerializer):
         model = GoalsAssessment
         fields = '__all__'
 
+class DevelopmentGoalsSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(required=False)
+    development_goals = CleanJSONField(required=False)
+
+    class Meta:
+        model = DevelopmentGoals
+        fields = '__all__'
+
 class LeaveFormSerializer(serializers.ModelSerializer):
     id = serializers.CharField(required=False)
     class Meta:
         model = leaveform
-        fields = '__all__'
+        fields = '__all__'
