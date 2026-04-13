@@ -114,8 +114,8 @@ class ChangePasswordView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-from .models import GoalsAssessment, leaveform
-from .serializers import GoalsAssessmentSerializer, LeaveFormSerializer
+from .models import GoalsAssessment, leaveform, DevelopmentGoals
+from .serializers import GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer
 
 class LeaveFormView(APIView):
     def get(self, request):
@@ -286,6 +286,54 @@ class GoalsAssessmentDetailView(APIView):
         
         goal.delete()
         return Response({"message": "Assessment and associated media deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+
+class DevelopmentGoalsView(APIView):
+    def get(self, request):
+        reg_no = request.query_params.get('reg_no')
+        if not reg_no:
+            return Response({"error": "Registration number is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        goals = DevelopmentGoals.objects.filter(registration_number=reg_no).order_by('-date')
+        serializer = DevelopmentGoalsSerializer(goals, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = DevelopmentGoalsSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class DevelopmentGoalsDetailView(APIView):
+    def get_object(self, pk):
+        try:
+            return DevelopmentGoals.objects.get(pk=ObjectId(pk))
+        except (DevelopmentGoals.DoesNotExist, Exception):
+            return None
+
+    def get(self, request, pk):
+        goal = self.get_object(pk)
+        if not goal:
+            return Response({"error": "Development Goal not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DevelopmentGoalsSerializer(goal)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        goal = self.get_object(pk)
+        if not goal:
+            return Response({"error": "Development Goal not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DevelopmentGoalsSerializer(goal, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        goal = self.get_object(pk)
+        if not goal:
+            return Response({"error": "Development Goal not found"}, status=status.HTTP_404_NOT_FOUND)
+        goal.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class FileDeleteView(APIView):
     def delete(self, request, file_id):

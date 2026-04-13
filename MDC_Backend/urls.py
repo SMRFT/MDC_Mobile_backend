@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView
+from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView
 
 urlpatterns = [
     path('patients/', PatientList.as_view(), name='patient-list'),
@@ -10,6 +10,8 @@ urlpatterns = [
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
     path('goals/', GoalsAssessmentView.as_view(), name='goals-list-create'),
     path('goals/update/<str:pk>/', GoalsAssessmentDetailView.as_view(), name='goals-update'),
+    path('developmental-goals/', DevelopmentGoalsView.as_view(), name='developmental-goals-list-create'),
+    path('developmental-goals/<str:pk>/', DevelopmentGoalsDetailView.as_view(), name='developmental-goals-detail'),
     path('leave/', LeaveFormView.as_view(), name='leave-form'),
     path('upload/', FileUploadView.as_view(), name='file-upload'),
     path('file/<str:file_id>/', FileDownloadView.as_view(), name='file-download'),
