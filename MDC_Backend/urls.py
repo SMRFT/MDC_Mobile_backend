@@ -1,5 +1,6 @@
 from django.urls import path
-from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView
+from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView
+from .reportDownloader import HistorySheetPDFView
 
 urlpatterns = [
     path('patients/', PatientList.as_view(), name='patient-list'),
@@ -16,4 +17,6 @@ urlpatterns = [
     path('upload/', FileUploadView.as_view(), name='file-upload'),
     path('file/<str:file_id>/', FileDownloadView.as_view(), name='file-download'),
     path('file/delete/<str:file_id>/', FileDeleteView.as_view(), name='file-delete'),
+    path('history-sheet/', HistoryRecordingSheetView.as_view(), name='history-sheet'),
+    path('history-sheet/pdf/', HistorySheetPDFView.as_view(), name='history-sheet-pdf'),
 ]

@@ -435,3 +435,60 @@ class FileDownloadView(APIView):
             return response
         except gridfs.errors.NoFile:
             raise Http404("File not found")
+
+
+class HistoryRecordingSheetView(APIView):
+    """
+    Fetch a History Recording Sheet by registration number.
+    GET /history-sheet/?reg_no=MDC/230/2026
+    """
+    def get(self, request):
+        reg_no = request.query_params.get('reg_no')
+        if not reg_no:
+            return Response({"error": "Registration number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            collection = db['milestone_backend_historyrecordingsheet']
+            record = collection.find_one({'registration_number': reg_no})
+            if not record:
+                return Response({"error": "History sheet not found"}, status=status.HTTP_404_NOT_FOUND)
+            # Convert ObjectId to string for JSON serialization
+            record['_id'] = str(record['_id'])
+            
+            # Clean and parse any JSON strings in the raw record
+            from .reportDownloader import clean_record
+            record = clean_record(record)
+            
+            # Resolve creator profile from Global DB
+            created_by = record.get('created_by')
+            creator_profile = None
+            if created_by:
+                try:
+                    db_global = client['Global']
+                    profile_col = db_global['backend_diagnostics_profile']
+                    doc = profile_col.find_one({'employeeId': str(created_by)})
+                    if doc:
+                        name = doc.get('employeeName', '').strip()
+                        if not any(name.startswith(p) for p in ['Dr.', 'Mr.', 'Ms.', 'Mrs.']):
+                            gender = doc.get('gender', '').lower()
+                            prefix = 'Ms. ' if gender == 'female' else 'Mr. '
+                            name = prefix + name
+                        
+                        quals = ', '.join([q.get('degree') for q in doc.get('qualifications', []) if q.get('degree')])
+                        exp_list = doc.get('experiences', [])
+                        position = exp_list[0].get('position', 'Psychologist') if exp_list else 'Psychologist'
+                        
+                        creator_profile = {
+                            "name": name,
+                            "qualifications": quals,
+                            "position": position,
+                            "clinic": "Milestones Developmental Center"
+                        }
+                except Exception:
+                    pass
+            record['creator_profile'] = creator_profile
+            
+            return Response(record)
+        except Exception as e:
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
