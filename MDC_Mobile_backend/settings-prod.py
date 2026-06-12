@@ -128,9 +128,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8081",
     "http://localhost:19006",
     "http://127.0.0.1:8081",
-    "https://test.shinova.in"
+    "https://test.shinova.in",
+    "https://shinova.in",
 ]
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.2/howto/static-files/
@@ -146,6 +146,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8081",
     "http://127.0.0.1:8081",
     "https://test.shinova.in",
+    "https://shinova.in",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
