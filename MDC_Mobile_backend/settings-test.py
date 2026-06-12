@@ -86,7 +86,7 @@ DATABASES = {
         'NAME': os.getenv('MILESTONE_DB_NAME', 'Milestone'),
         'ENFORCE_SCHEMA': False,
         'CLIENT': {
-            'host': os.getenv('GLOBAL_DB_HOST', 'mongodb://localhost:27017/'),
+            'host': os.getenv('GLOBAL_DB_HOST'),
         }
     }
 }
@@ -150,4 +150,7 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 
+# Increase upload limits for large videos
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
 
