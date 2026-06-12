@@ -1,6 +1,6 @@
 from django.urls import path
-from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView
-from .reportDownloader import HistorySheetPDFView
+from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView
+from .reportDownloader import HistorySheetPDFView, AssessmentReportPDFView
 
 urlpatterns = [
     path('patients/', PatientList.as_view(), name='patient-list'),
@@ -9,6 +9,7 @@ urlpatterns = [
     path('search-phone/', PatientPhoneSearchView.as_view(), name='patient-search-phone'),
     path('register-user/', RegisterUserView.as_view(), name='register-user'),
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
+    path('deactivate-account/', DeactivateAccountView.as_view(), name='deactivate-account'),
     path('goals/', GoalsAssessmentView.as_view(), name='goals-list-create'),
     path('goals/update/<str:pk>/', GoalsAssessmentDetailView.as_view(), name='goals-update'),
     path('developmental-goals/', DevelopmentGoalsView.as_view(), name='developmental-goals-list-create'),
@@ -19,4 +20,6 @@ urlpatterns = [
     path('file/delete/<str:file_id>/', FileDeleteView.as_view(), name='file-delete'),
     path('history-sheet/', HistoryRecordingSheetView.as_view(), name='history-sheet'),
     path('history-sheet/pdf/', HistorySheetPDFView.as_view(), name='history-sheet-pdf'),
+    path('assessment-report/pdf/', AssessmentReportPDFView.as_view(), name='assessment-report-pdf'),
+    path('assessment-report/', AssessmentReportView.as_view(), name='assessment-report'),
 ]
