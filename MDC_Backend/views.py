@@ -45,9 +45,10 @@ class PatientPhoneSearchView(APIView):
             return Response({"error": "Phone number and password are required"}, status=status.HTTP_400_BAD_REQUEST)
         
         # Validate against appusers
-        matched_users = appusers.objects.filter(mobile_number=phone, password=password)
+        matched_users = list(appusers.objects.filter(mobile_number=phone, password=password))
+        matched_users = [user for user in matched_users if user.is_active]
         
-        if not matched_users.exists():
+        if not matched_users:
             return Response({"error": "Invalid credentials. Please check your mobile number and password."}, status=status.HTTP_401_UNAUTHORIZED)
             
         data = []
@@ -111,6 +112,21 @@ class ChangePasswordView(APIView):
             return Response({"message": "Password changed successfully"})
         except appusers.DoesNotExist:
             return Response({"error": "Invalid current credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class DeactivateAccountView(APIView):
+    def post(self, request):
+        reg_no = request.data.get('reg_no')
+        if not reg_no:
+            return Response({"error": "Registration Number is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = appusers.objects.get(reg_no=reg_no)
+            user.is_active = False
+            user.save()
+            return Response({"message": "Account deactivated successfully"}, status=status.HTTP_200_OK)
+        except appusers.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -489,6 +505,104 @@ class HistoryRecordingSheetView(APIView):
             record['creator_profile'] = creator_profile
             
             return Response(record)
+        except Exception as e:
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AssessmentReportView(APIView):
+    """
+    Fetch all Assessment Report data by registration number.
+    GET /assessment-report/?reg_no=MDC/230/2026
+    """
+    def get(self, request):
+        from datetime import datetime
+        reg_no = request.query_params.get('reg_no')
+        if not reg_no:
+            return Response({"error": "Registration number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 1. Registration
+            registration = db['milestone_backend_registration'].find_one({'registration_number': reg_no})
+            if not registration:
+                return Response({"error": "Patient registration not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            registration['_id'] = str(registration['_id'])
+            if 'dob' in registration and registration['dob']:
+                if isinstance(registration['dob'], datetime):
+                    registration['dob'] = registration['dob'].isoformat()
+            
+            # 2. Query assessments
+            physio = db['milestone_backend_physiotherapyassessment'].find_one({'registrationNumber': reg_no})
+            pediatric = db['milestone_backend_pediatricassessment'].find_one({'$or': [{'registrationNumber': reg_no}, {'registration_number': reg_no}]})
+            analysis = db['milestone_backend_assessmentanalysis'].find_one({'registration_number': reg_no})
+            language = db['milestone_backend_childlanguageassessment'].find_one({'$or': [{'registrationNumber': reg_no}, {'registration_number': reg_no}]})
+            psychology = db['milestone_backend_clinicalpsychologyassessment'].find_one({'registrationNumber': reg_no})
+
+            if not any([physio, pediatric, analysis, language, psychology]):
+                return Response({"error": "No assessments found for this patient"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Clean records
+            from .reportDownloader import clean_record
+            
+            def serialize_doc(doc):
+                if not doc:
+                    return None
+                doc['_id'] = str(doc['_id'])
+                for date_key in ['assessment_date', 'date', 'created_date', 'lastmodified_date']:
+                    if date_key in doc and isinstance(doc[date_key], datetime):
+                        doc[date_key] = doc[date_key].isoformat()
+                return clean_record(doc)
+
+            physio = serialize_doc(physio)
+            pediatric = serialize_doc(pediatric)
+            analysis = serialize_doc(analysis)
+            language = serialize_doc(language)
+            psychology = serialize_doc(psychology)
+
+            # Resolve creator profile
+            created_by = None
+            for doc in [psychology, physio, analysis, pediatric, language]:
+                if doc and doc.get('created_by'):
+                    created_by = doc.get('created_by')
+                    break
+
+            creator_profile = None
+            if created_by:
+                try:
+                    db_global = client['Global']
+                    profile_col = db_global['backend_diagnostics_profile']
+                    doc = profile_col.find_one({'employeeId': str(created_by)})
+                    if doc:
+                        name = doc.get('employeeName', '').strip()
+                        if not any(name.startswith(p) for p in ['Dr.', 'Mr.', 'Ms.', 'Mrs.']):
+                            gender = doc.get('gender', '').lower()
+                            prefix = 'Ms. ' if gender == 'female' else 'Mr. '
+                            name = prefix + name
+                        
+                        quals = ', '.join([q.get('degree') for q in doc.get('qualifications', []) if q.get('degree')])
+                        exp_list = doc.get('experiences', [])
+                        position = exp_list[0].get('position', 'Psychologist') if exp_list else 'Psychologist'
+                        
+                        creator_profile = {
+                            "name": name,
+                            "qualifications": quals,
+                            "position": position,
+                            "clinic": "Milestones Developmental Center"
+                        }
+                except Exception:
+                    pass
+
+            response_data = {
+                "registration": registration,
+                "physio": physio,
+                "pediatric": pediatric,
+                "analysis": analysis,
+                "language": language,
+                "psychology": psychology,
+                "creator_profile": creator_profile
+            }
+            return Response(response_data)
         except Exception as e:
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

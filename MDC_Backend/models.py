@@ -101,6 +101,7 @@ class appusers(AuditModel):
     email = models.EmailField(null=True, blank=True)
     password = models.CharField(max_length=100)
     previous_password = models.CharField(max_length=100,null=True, blank=True)
+    is_active = models.BooleanField(default=True)
     
     class Meta:
         db_table = 'milestone_backend_appusers'

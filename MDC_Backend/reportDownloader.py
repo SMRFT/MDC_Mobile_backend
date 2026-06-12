@@ -21,6 +21,21 @@ from rest_framework import status
 # MongoDB connection reused from views
 from .views import db, client
 
+import base64
+import os
+
+def _get_logo_base64():
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        logo_path = os.path.join(current_dir, 'Assets', 'icon.png')
+        if os.path.exists(logo_path):
+            with open(logo_path, 'rb') as f:
+                encoded = base64.b64encode(f.read()).decode('utf-8')
+                return f"data:image/png;base64,{encoded}"
+    except Exception as e:
+        print(f"Error loading logo: {e}")
+    return ""
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +146,9 @@ def _get_creator_signature(created_by: str) -> str:
 
 def build_report_html(record: dict) -> str:
     """Return a complete A4 HTML document for the psychological report."""
+    logo_data_uri = _get_logo_base64()
+    logo_html = f'<div style="text-align: center; margin-bottom: 6px;"><img src="{logo_data_uri}" width="50" height="50"/></div>' if logo_data_uri else ''
+
     # Load defaults dynamically from MongoDB
     defaults = {}
     try:
@@ -412,80 +430,48 @@ def build_report_html(record: dict) -> str:
     creator_sig = _get_creator_signature(record.get('created_by'))
     if creator_sig:
         footer_html = f"""
-        <div class="footer">
-          <div class="footer-inner">
-            <div style="float: left; width: 45%; font-size: 10pt;">
+        <table style="width: 100%; margin-top: 15px; border-top: 1px solid #ccc; padding-top: 8px; page-break-inside: avoid;">
+          <tr>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
               <strong>Dr. D. Priyadharshni</strong><br/>
               Dch, DNB (pead)<br/>Paediatrician and play therapist<br/>Milestones Developmental Center
-            </div>
-            <div style="float: right; width: 45%; font-size: 10pt;">
+            </td>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
               {creator_sig}
-            </div>
-            <div style="clear: both;"></div>
-          </div>
-        </div>
+            </td>
+          </tr>
+        </table>
         """
     else:
-        footer_defaults = defaults.get('report_footer', {})
-        reported_by = footer_defaults.get('reported_by', [])
-        if reported_by:
-            footer_cols_html = ""
-            for i, person in enumerate(reported_by):
-                name = person.get('name', '')
-                role = person.get('role', '')
-                details = person.get('details', '')
-                
-                details_html = f"{role}"
-                if details:
-                    details_html += f"<br/>{details}"
-                else:
-                    clinic_name = footer_defaults.get('clinic', 'Milestones Developmental Center')
-                    details_html += f"<br/>{clinic_name}"
-                
-                float_side = "left" if i % 2 == 0 else "right"
-                footer_cols_html += f"""
-                <div style="float: {float_side}; width: 45%; font-size: 10pt;">
-                    <strong>{name}</strong><br/>
-                    {details_html}
-                </div>
-                """
-            footer_html = f"""
-            <div class="footer">
-              <div class="footer-inner">
-                {footer_cols_html}
-                <div style="clear: both;"></div>
-              </div>
-            </div>
-            """
-        else:
-            footer_html = """
-            <div class="footer">
-              <div class="footer-inner">
-                <div class="footer-left">
-                  <strong>Dr. D. Priyadharshni</strong><br/>
-                  Dch, DNB (pead)<br/>Paediatrician and play therapist<br/>Milestones Developmental Center
-                </div>
-                <div class="footer-right">
-                  <strong>Ms. K. Devika,</strong><br/>
-                  Clinical Psychologist,<br/>Special Educator for Autism Child<br/>MDC
-                </div>
-              </div>
-            </div>
-            """
+        footer_html = """
+        <table style="width: 100%; margin-top: 15px; border-top: 1px solid #ccc; padding-top: 8px; page-break-inside: avoid;">
+          <tr>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
+              <strong>Dr. D. Priyadharshni</strong><br/>
+              Dch, DNB (pead)<br/>Paediatrician and play therapist<br/>Milestones Developmental Center
+            </td>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
+              <strong>Ms. Sivashankari</strong><br/>
+              M.sc Clinical Psychology, B.sc PICS<br/>Psychologist<br/>Milestones Developmental Center
+            </td>
+          </tr>
+        </table>
+        """
 
     return f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8"/>
 <style>
-  @page {{ size: A4; margin: 18mm 20mm; }}
+  @page {{ size: A4; margin: 15mm 8mm; }}
   body {{ font-family: Times New Roman, serif; font-size: 11pt; color: #000; }}
   .clinic-name {{ color: #2e7d32; font-size: 15pt; font-weight: bold; text-align: center;
                  text-transform: uppercase; letter-spacing: 1px; }}
   .clinic-addr {{ font-size: 8.5pt; text-align: center; color: #333; margin: 2px 0; }}
   .report-title {{ text-align: center; font-size: 13pt; font-weight: bold;
                   text-decoration: underline; text-transform: uppercase; margin: 8px 0 12px; }}
-  table {{ width: 100%; border-collapse: collapse; margin: 6px 0; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 6px 0; page-break-inside: avoid; }}
+  tr {{ page-break-inside: avoid; }}
   .info-table td {{ border: 1px solid #555; padding: 4px 7px; font-size: 10.5pt; }}
   .dev-table th, .dev-table td {{ border: 1px solid #555; padding: 3px 5px; font-size: 9.5pt; }}
   .dev-table th {{ background: #e8f5e9; text-align: center; font-weight: bold; }}
@@ -504,6 +490,7 @@ def build_report_html(record: dict) -> str:
 </style>
 </head>
 <body>
+  {logo_html}
   <div class="clinic-name">Milestones Developmental Center</div>
   <div class="clinic-addr">59 / 37, SARADHA COLLEGE ROAD, SALEM &ndash; 636007 &nbsp;|&nbsp; Ph: 9047033633</div>
   <div class="report-title">History Report</div>
@@ -623,6 +610,508 @@ class HistorySheetPDFView(APIView):
                       .replace(' ', '_')
             )
             filename = f"History_Report_{child_name}_{reg_no.replace('/', '-')}.pdf"
+
+            pdf_buffer.seek(0)
+            response = HttpResponse(pdf_buffer.read(), content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+            return response
+
+        except Exception as e:
+            traceback.print_exc()
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+# ─── Assessment Report Rendering Helpers ──────────────────────────────────────
+
+def _safe_json_load(val):
+    if not val:
+        return {}
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, list):
+        return val
+    try:
+        import json
+        if isinstance(val, str):
+            stripped = val.strip()
+            if (stripped.startswith('{') and stripped.endswith('}')) or (stripped.startswith('[') and stripped.endswith(']')):
+                return json.loads(stripped)
+    except Exception:
+        pass
+    return {}
+
+
+def _render_physio(doc):
+    if not doc:
+        return ""
+    html = '<div class="section-head">Physiotherapy Assessment</div>'
+    html += '<table class="assessment-table">'
+    
+    # Observation
+    obs = _safe_json_load(doc.get('on_observation'))
+    if obs:
+        html += f"<tr><td><strong>On Observation</strong></td><td>Resting Posture: {obs.get('restingPosture','–')}<br/>Gait: {obs.get('gait','–')}<br/>Deformity: {obs.get('deformity','–')}<br/>Appliances: {obs.get('appliances','–')}</td></tr>"
+    
+    # Tone
+    tone = _safe_json_load(doc.get('tone'))
+    if tone:
+        html += f"<tr><td><strong>Tone</strong></td><td>Upper Limb: {tone.get('upperLimb','–')} {tone.get('upperLimbInput','')}<br/>Lower Limb: {tone.get('lowerLimb','–')} {tone.get('lowerLimbInput','')}</td></tr>"
+        
+    # Motor System
+    motor = _safe_json_load(doc.get('motor_system'))
+    if motor:
+        html += f"<tr><td><strong>Motor System</strong></td><td>Upper Limb: {motor.get('upperLimb','–')}<br/>Lower Limb: {motor.get('lowerLimb','–')}</td></tr>"
+        
+    # Clonus
+    clonus = _safe_json_load(doc.get('clonus'))
+    if clonus:
+        clonus_items = [f"{k.capitalize()}: {v}" for k, v in clonus.items() if v]
+        if clonus_items:
+            html += f"<tr><td><strong>Clonus</strong></td><td>{', '.join(clonus_items)}</td></tr>"
+        
+    # Coordination
+    coord = _safe_json_load(doc.get('coordination'))
+    if coord:
+        html += f"<tr><td><strong>Coordination</strong></td><td>Upper Limb: {coord.get('upperLimb','–')} {coord.get('upperLimbInput','')}<br/>Lower Limb: {coord.get('lowerLimb','–')} {coord.get('lowerLimbInput','')}</td></tr>"
+        
+    # Pattern & Position
+    pat = _safe_json_load(doc.get('pattern_and_position'))
+    if pat:
+        html += f"<tr><td><strong>Pattern & Position</strong></td><td>Pattern: {pat.get('pattern','–')}<br/>Head Position: {pat.get('headPosition','–')}<br/>Trunk Position: {pat.get('trunkPosition','–')}</td></tr>"
+        
+    # Limb Length
+    limb = _safe_json_load(doc.get('limb_length_discrepancy'))
+    if limb:
+        html += f"<tr><td><strong>Limb Length Discrepancy</strong></td><td>Right Hand: {limb.get('handRight','–')} | Left Hand: {limb.get('handLeft','–')}<br/>Right Leg: {limb.get('legRight','–')} | Left Leg: {limb.get('legLeft','–')}</td></tr>"
+        
+    # Balance
+    bal = _safe_json_load(doc.get('balance'))
+    if bal:
+        bal_items = [f"{_fmt_key(k)}: {v}" for k, v in bal.items() if v]
+        if bal_items:
+            html += f"<tr><td><strong>Balance</strong></td><td>{', '.join(bal_items)}</td></tr>"
+        
+    # Sensation
+    sens = _safe_json_load(doc.get('sensation'))
+    if sens:
+        sens_items = [f"{_fmt_key(k)}: {v}" for k, v in sens.items() if v]
+        if sens_items:
+            html += f"<tr><td><strong>Sensation</strong></td><td>{', '.join(sens_items)}</td></tr>"
+        
+    # Assessments Used
+    used = _safe_json_load(doc.get('assessments_used'))
+    if used:
+        used_items = [f"{v}" for k, v in used.items() if v]
+        if used_items:
+            html += f"<tr><td><strong>Assessments Used</strong></td><td>{', '.join(used_items)}</td></tr>"
+        
+    # Impression
+    if doc.get('impression'):
+        html += f"<tr><td><strong>Clinical Impression</strong></td><td>{doc.get('impression')}</td></tr>"
+        
+    # Notes
+    if doc.get('notes'):
+        html += f"<tr><td><strong>Notes</strong></td><td>{doc.get('notes')}</td></tr>"
+        
+    html += "</table>"
+    return html
+
+
+def _render_analysis(doc):
+    if not doc:
+        return ""
+    html = '<div class="section-head">Assessment Analysis</div>'
+    html += '<table class="assessment-table">'
+    
+    # Provisional Diagnosis
+    if doc.get('provisional_diagnosis'):
+        html += f"<tr><td><strong>Provisional Diagnosis</strong></td><td>{doc.get('provisional_diagnosis')}</td></tr>"
+        
+    # Preferred Language
+    lang = _safe_json_load(doc.get('preferred_language'))
+    if lang:
+        langs = [k.capitalize() for k, v in lang.items() if v]
+        if langs:
+            html += f"<tr><td><strong>Preferred Language</strong></td><td>{', '.join(langs)}</td></tr>"
+            
+    # Home Modification
+    if doc.get('home_modification'):
+        html += f"<tr><td><strong>Home Modifications</strong></td><td>{doc.get('home_modification')}</td></tr>"
+        
+    # Parenting Modifications
+    if doc.get('parenting_modifications'):
+        html += f"<tr><td><strong>Parenting Modifications</strong></td><td>{doc.get('parenting_modifications')}</td></tr>"
+        
+    # Mapping Therapy
+    mapping = _safe_json_load(doc.get('mapping_therapy'))
+    if mapping:
+        mapping_html = ""
+        for key, value in mapping.items():
+            therapies = [k for k, v in value.items() if v]
+            if therapies:
+                mapping_html += f"<strong>{key}</strong>: {', '.join(therapies)}<br/>"
+        if mapping_html:
+            html += f"<tr><td><strong>Therapy Mapping</strong></td><td>{mapping_html}</td></tr>"
+            
+    # Session Numbers
+    sessions = _safe_json_load(doc.get('session_numbers'))
+    if sessions:
+        sess_items = [f"{k}: {v}" for k, v in sessions.items() if v]
+        if sess_items:
+            html += f"<tr><td><strong>Sessions Prescribed</strong></td><td>{', '.join(sess_items)}</td></tr>"
+            
+    # Therapy Methods
+    methods = _safe_json_load(doc.get('therapy_methods'))
+    if methods:
+        meth_items = [k.replace('_', ' ').capitalize() for k, v in methods.items() if v]
+        if meth_items:
+            html += f"<tr><td><strong>Therapy Methods</strong></td><td>{', '.join(meth_items)}</td></tr>"
+            
+    html += "</table>"
+    return html
+
+
+def _render_psychology(doc):
+    if not doc:
+        return ""
+    html = '<div class="section-head">Clinical Psychology Assessment</div>'
+    html += '<table class="assessment-table">'
+    
+    # Behaviour Problems
+    probs = doc.get('behaviour_problems')
+    if probs:
+        if isinstance(probs, str) and (probs.startswith('[') or probs.startswith('{')):
+            probs = _safe_json_load(probs)
+        if isinstance(probs, list):
+            html += f"<tr><td><strong>Behaviour Problems</strong></td><td>{', '.join(probs)}</td></tr>"
+        else:
+            html += f"<tr><td><strong>Behaviour Problems</strong></td><td>{probs}</td></tr>"
+            
+    # General Temperament
+    temp = _safe_json_load(doc.get('general_temperament'))
+    if temp:
+        temp_items = [f"<strong>{_fmt_key(k)}</strong>: {v}" for k, v in temp.items() if v]
+        if temp_items:
+            html += f"<tr><td><strong>General Temperament</strong></td><td>{'<br/>'.join(temp_items)}</td></tr>"
+            
+    # Behavioral Observation
+    obs = _safe_json_load(doc.get('behavioral_observation'))
+    if obs:
+        obs_items = [f"<strong>{_fmt_key(k)}</strong>: {v}" for k, v in obs.items() if v]
+        if obs_items:
+            html += f"<tr><td><strong>Behavioral Observation</strong></td><td>{'<br/>'.join(obs_items)}</td></tr>"
+            
+    # Assessments Used
+    used = _safe_json_load(doc.get('assessments_used'))
+    if used:
+        used_html = ""
+        for k, v in used.items():
+            if k.lower() in ['otherassessments', 'other_assessments']:
+                continue
+            if isinstance(v, dict):
+                sub_items = [f"{sub_k.upper()}: {sub_v}" for sub_k, sub_v in v.items() if sub_v]
+                if sub_items:
+                    used_html += f"<strong>{k.upper()}</strong>: {', '.join(sub_items)}<br/>"
+            elif v:
+                used_html += f"<strong>{k.upper()}</strong>: {v}<br/>"
+        if used_html:
+            html += f"<tr><td><strong>Assessments & Tests Used</strong></td><td>{used_html}</td></tr>"
+            
+        # Render OTHERASSESSMENTS as a separate row
+        other_val = used.get('otherAssessments') or used.get('other_assessments')
+        if other_val:
+            parsed_other = _safe_json_load(other_val) if isinstance(other_val, str) else other_val
+            if isinstance(parsed_other, list):
+                other_items = []
+                for item in parsed_other:
+                    if isinstance(item, dict):
+                        k_val = item.get('key')
+                        v_val = item.get('value')
+                        if k_val or v_val:
+                            other_items.append(f"{k_val or '–'}: {v_val or '–'}")
+                    else:
+                        other_items.append(str(item))
+                other_str = ", ".join(other_items)
+            elif isinstance(parsed_other, dict):
+                other_items = [f"{sub_k}: {sub_v}" for sub_k, sub_v in parsed_other.items() if sub_v]
+                other_str = ", ".join(other_items)
+            else:
+                other_str = str(other_val)
+            if other_str:
+                html += f"<tr><td><strong>OTHERASSESSMENTS</strong></td><td>{other_str}</td></tr>"
+            
+    # Impression
+    if doc.get('impression'):
+        html += f"<tr><td><strong>Clinical Impression</strong></td><td>{doc.get('impression')}</td></tr>"
+        
+    # Notes
+    if doc.get('notes'):
+        html += f"<tr><td><strong>Notes</strong></td><td>{doc.get('notes')}</td></tr>"
+        
+    html += "</table>"
+    return html
+
+
+def _render_pediatric(doc):
+    if not doc:
+        return ""
+    html = '<div class="section-head">Pediatric Assessment</div>'
+    html += '<table class="assessment-table">'
+    exclude = ['_id', 'created_by', 'created_date', 'lastmodified_by', 'lastmodified_date', 'registrationNumber', 'registration_number', 'patientName', 'patient_name', 'assessment_date', 'date']
+    count = 0
+    for k, v in doc.items():
+        if k not in exclude and v:
+            if isinstance(v, (dict, list)) or (isinstance(v, str) and (v.startswith('{') or v.startswith('['))):
+                parsed = _safe_json_load(v)
+                if parsed:
+                    val_str = ", ".join([f"{_fmt_key(sub_k)}: {sub_v}" for sub_k, sub_v in parsed.items() if sub_v]) if isinstance(parsed, dict) else str(parsed)
+                else:
+                    val_str = str(v)
+            else:
+                val_str = str(v)
+            html += f"<tr><td><strong>{_fmt_key(k)}</strong></td><td>{val_str}</td></tr>"
+            count += 1
+    if count == 0:
+        html += "<tr><td colspan='2'>Assessment recorded with standard pediatric developmental examination metrics.</td></tr>"
+    html += "</table>"
+    return html
+
+
+def _render_language(doc):
+    if not doc:
+        return ""
+    html = '<div class="section-head">Child Language Assessment</div>'
+    html += '<table class="assessment-table">'
+    exclude = ['_id', 'created_by', 'created_date', 'lastmodified_by', 'lastmodified_date', 'registrationNumber', 'registration_number', 'patientName', 'patient_name', 'assessment_date', 'date']
+    count = 0
+    for k, v in doc.items():
+        if k not in exclude and v:
+            if isinstance(v, (dict, list)) or (isinstance(v, str) and (v.startswith('{') or v.startswith('['))):
+                parsed = _safe_json_load(v)
+                if parsed:
+                    val_str = ", ".join([f"{_fmt_key(sub_k)}: {sub_v}" for sub_k, sub_v in parsed.items() if sub_v]) if isinstance(parsed, dict) else str(parsed)
+                else:
+                    val_str = str(v)
+            else:
+                val_str = str(v)
+            html += f"<tr><td><strong>{_fmt_key(k)}</strong></td><td>{val_str}</td></tr>"
+            count += 1
+    if count == 0:
+        html += "<tr><td colspan='2'>Assessment recorded with speech, receptive, and expressive language assessment metrics.</td></tr>"
+    html += "</table>"
+    return html
+
+
+def build_assessment_report_html(reg_no: str, physio, pediatric, analysis, language, psychology, registration) -> str:
+    logo_data_uri = _get_logo_base64()
+    logo_html = f'<div style="text-align: center; margin-bottom: 6px;"><img src="{logo_data_uri}" width="50" height="50"/></div>' if logo_data_uri else ''
+
+    child_name = registration.get('name_of_child', '–')
+    
+    # Format DOB
+    dob_str = ""
+    dob_val = registration.get('dob')
+    if dob_val:
+        if isinstance(dob_val, datetime):
+            dob_str = dob_val.isoformat()
+        else:
+            dob_str = str(dob_val)
+            
+    # Find evaluation/assessment date
+    dates = []
+    for doc in [physio, pediatric, analysis, language, psychology]:
+        if doc:
+            for k in ['assessment_date', 'date', 'created_date']:
+                d = doc.get(k)
+                if d:
+                    if isinstance(d, datetime):
+                        dates.append(d)
+                    elif isinstance(d, str):
+                        try:
+                            dates.append(datetime.fromisoformat(d.replace('Z', '')))
+                        except:
+                            pass
+    assess_date = max(dates) if dates else datetime.now()
+    assess_str = assess_date.isoformat()
+
+    father = registration.get('father_name', '–')
+    mother = registration.get('mother_name', '–')
+    sex = registration.get('sex', '–')
+    phone = registration.get('father_phone_number') or registration.get('mother_phone_number') or '–'
+
+    # Generate assessment content sections
+    content_html = ""
+    content_html += _render_physio(physio)
+    content_html += _render_pediatric(pediatric)
+    content_html += _render_analysis(analysis)
+    content_html += _render_language(language)
+    content_html += _render_psychology(psychology)
+
+    # Inject explicit inline widths and styles because xhtml2pdf does not support pseudo-classes like :first-child / :last-child
+    content_html = content_html.replace('<table class="assessment-table">', '<table class="assessment-table" width="100%">')
+    content_html = content_html.replace('<tr><td>', '<tr><td style="width: 30%; background-color: #f9f9f9; font-weight: bold; vertical-align: top;">')
+    content_html = content_html.replace('</strong></td><td>', '</strong></td><td style="width: 70%; vertical-align: top;">')
+
+    # Use the same footer signature logic
+    created_by = None
+    for doc in [psychology, physio, analysis, pediatric, language]:
+        if doc and doc.get('created_by'):
+            created_by = doc.get('created_by')
+            break
+
+    creator_sig = _get_creator_signature(created_by) if created_by else None
+    if creator_sig:
+        footer_html = f"""
+        <table style="width: 100%; margin-top: 25px; border-top: 1px solid #ccc; padding-top: 8px; page-break-inside: avoid;">
+          <tr>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
+              <strong>Dr. D. Priyadharshni</strong><br/>
+              Dch, DNB (pead)<br/>Paediatrician and play therapist<br/>Milestones Developmental Center
+            </td>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
+              {creator_sig}
+            </td>
+          </tr>
+        </table>
+        """
+    else:
+        footer_html = """
+        <table style="width: 100%; margin-top: 25px; border-top: 1px solid #ccc; padding-top: 8px; page-break-inside: avoid;">
+          <tr>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
+              <strong>Dr. D. Priyadharshni</strong><br/>
+              Dch, DNB (pead)<br/>Paediatrician and play therapist<br/>Milestones Developmental Center
+            </td>
+            <td style="width: 50%; vertical-align: top; font-size: 10pt; line-height: 1.4;">
+              <strong>Ms. Sivashankari</strong><br/>
+              M.sc Clinical Psychology, B.sc PICS<br/>Psychologist<br/>Milestones Developmental Center
+            </td>
+          </tr>
+        </table>
+        """
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<style>
+  @page {{ size: A4; margin: 15mm 8mm; }}
+  body {{ font-family: Times New Roman, serif; font-size: 11pt; color: #000; }}
+  .clinic-name {{ color: #2e7d32; font-size: 15pt; font-weight: bold; text-align: center;
+                 text-transform: uppercase; letter-spacing: 1px; }}
+  .clinic-addr {{ font-size: 8.5pt; text-align: center; color: #333; margin: 2px 0; }}
+  .report-title {{ text-align: center; font-size: 13pt; font-weight: bold;
+                  text-decoration: underline; text-transform: uppercase; margin: 8px 0 12px; }}
+  
+  .info-table {{ width: 100%; border: 1.5px solid #000; border-collapse: collapse; margin-bottom: 15px; }}
+  .info-table td {{ border: 1px solid #000; padding: 6px 8px; font-size: 10pt; width: 33.33%; }}
+  .bold {{ font-weight: bold; }}
+  
+  .section-head {{ font-size: 12pt; font-weight: bold; color: #1b5e20; margin-top: 18px; margin-bottom: 6px; text-transform: uppercase; border-bottom: 1px solid #1b5e20; padding-bottom: 2px; }}
+  
+  .assessment-table {{ width: 100%; border: 1px solid #ddd; border-collapse: collapse; margin-bottom: 15px; }}
+  .assessment-table td {{ border: 1px solid #ddd; padding: 6px 8px; font-size: 10pt; vertical-align: top; }}
+
+
+  table {{ width: 100%; border-collapse: collapse; page-break-inside: avoid; }}
+  tr    {{ page-break-inside: avoid; }}
+</style>
+</head>
+<body>
+  {logo_html}
+  <div class="clinic-name">Milestones Developmental Center</div>
+  <div class="clinic-addr">59 / 37, SARADHA COLLEGE ROAD, SALEM &ndash; 636007 &nbsp;|&nbsp; Ph: 9047033633</div>
+  <div class="report-title">Assessment Report</div>
+
+  <table class="info-table">
+    <tr>
+      <td><span class="bold">Name:</span> {child_name}</td>
+      <td><span class="bold">DOB:</span> {_fmt_date(dob_str)}</td>
+      <td><span class="bold">Date of Evaluation:</span> {_fmt_date(assess_str)}</td>
+    </tr>
+    <tr>
+      <td><span class="bold">Father:</span> {father}</td>
+      <td><span class="bold">Age:</span> {_calc_age(dob_str, assess_str)}</td>
+      <td><span class="bold">Reg. No.:</span> {reg_no}</td>
+    </tr>
+    <tr>
+      <td><span class="bold">Mother:</span> {mother}</td>
+      <td><span class="bold">Sex:</span> {sex}</td>
+      <td><span class="bold">Phone:</span> {phone}</td>
+    </tr>
+  </table>
+
+  {content_html}
+
+  <p style="text-align:center;margin-top:25px;keep-with-next: true;">Reported by</p>
+  {footer_html}
+</body>
+</html>"""
+
+
+class AssessmentReportPDFView(APIView):
+    """
+    Generate and stream a combined Assessment Report PDF for the child.
+    GET /assessment-report/pdf/?reg_no=MDC/230/2026
+    """
+    def get(self, request):
+        from xhtml2pdf import pisa
+
+        reg_no = request.query_params.get('reg_no')
+        if not reg_no:
+            return Response(
+                {"error": "reg_no is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Demographics
+            registration = db['milestone_backend_registration'].find_one({'registration_number': reg_no})
+            if not registration:
+                return Response(
+                    {"error": "Patient registration not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Query assessments
+            physio = db['milestone_backend_physiotherapyassessment'].find_one({'registrationNumber': reg_no})
+            pediatric = db['milestone_backend_pediatricassessment'].find_one({'$or': [{'registrationNumber': reg_no}, {'registration_number': reg_no}]})
+            analysis = db['milestone_backend_assessmentanalysis'].find_one({'registration_number': reg_no})
+            language = db['milestone_backend_childlanguageassessment'].find_one({'$or': [{'registrationNumber': reg_no}, {'registration_number': reg_no}]})
+            psychology = db['milestone_backend_clinicalpsychologyassessment'].find_one({'registrationNumber': reg_no})
+
+            # Check if at least one assessment exists
+            if not any([physio, pediatric, analysis, language, psychology]):
+                return Response(
+                    {"error": "No assessments found for this patient"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            html_content = build_assessment_report_html(
+                reg_no=reg_no,
+                physio=physio,
+                pediatric=pediatric,
+                analysis=analysis,
+                language=language,
+                psychology=psychology,
+                registration=registration
+            )
+
+            pdf_buffer = io.BytesIO()
+            result = pisa.CreatePDF(io.StringIO(html_content), dest=pdf_buffer)
+
+            if result.err:
+                return Response(
+                    {"error": "PDF generation failed"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            child_name = registration.get('name_of_child', reg_no).replace(' ', '_')
+            filename = f"Assessment_Report_{child_name}_{reg_no.replace('/', '-')}.pdf"
 
             pdf_buffer.seek(0)
             response = HttpResponse(pdf_buffer.read(), content_type='application/pdf')
