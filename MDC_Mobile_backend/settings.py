@@ -83,10 +83,10 @@ WSGI_APPLICATION = 'MDC_Mobile_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'djongo',
-        'NAME': os.getenv('GLOBAL_DB_NAME'),
+        'NAME': os.getenv('MILESTONE_DB_NAME', 'Milestone'),
         'ENFORCE_SCHEMA': False,
         'CLIENT': {
-            'host': os.getenv('GLOBAL_DB_HOST'),
+            'host': os.getenv('GLOBAL_DB_HOST', 'mongodb://localhost:27017/'),
         }
     }
 }
@@ -128,7 +128,8 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8081",
     "http://localhost:19006",
     "http://127.0.0.1:8081",
-    "https://test.shinova.in"
+    "https://test.shinova.in",
+    "https://shinova.in",
 ]
 
 
@@ -146,6 +147,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8081",
     "http://127.0.0.1:8081",
     "https://test.shinova.in",
+    "https://shinova.in",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
