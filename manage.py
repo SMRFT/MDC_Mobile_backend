@@ -16,11 +16,11 @@ def main():
     print(f"Initializing environment: {environment}" )
 
     if environment == 'prod':
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'shanmugahospital_backend.settings-prod')
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'MDC_Mobile_backend.settings-prod')
     elif environment == 'test':
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'shanmugahospital_backend.settings-test')
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'MDC_Mobile_backend.settings-test')
     else:
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'shanmugahospital_backend.settings')
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'MDC_Mobile_backend.settings')
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
