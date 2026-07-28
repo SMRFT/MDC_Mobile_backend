@@ -130,6 +130,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:8081",
     "https://test.shinova.in",
     "https://shinova.in",
+    
 ]
 
 

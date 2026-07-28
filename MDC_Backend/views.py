@@ -1,11 +1,51 @@
+import os
+import shutil
+import tempfile
+import traceback
+import gridfs
+import certifi
+from datetime import datetime
+from bson.objectid import ObjectId
+from dotenv import load_dotenv
+
+from django.conf import settings
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import Registration, PatientAttendance, appusers
-from .serializers import RegistrationSerializer, PatientAttendanceSerializer
-import os
-import traceback
+from rest_framework.parsers import MultiPartParser, FormParser
 from pymongo import MongoClient
+
+try:
+    from .models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals
+except ImportError:
+    from MDC_Backend.models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals
+
+try:
+    from .serializers import (
+        RegistrationSerializer, PatientAttendanceSerializer,
+        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer
+    )
+except ImportError:
+    from MDC_Backend.serializers import (
+        RegistrationSerializer, PatientAttendanceSerializer,
+        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer
+    )
+
+try:
+    from .utils import compress_video
+except ImportError:
+    try:
+        from MDC_Backend.utils import compress_video
+    except ImportError:
+        compress_video = None
+
+try:
+    from .reportDownloader import clean_record
+except ImportError:
+    try:
+        from MDC_Backend.reportDownloader import clean_record
+    except ImportError:
+        clean_record = None
 
 class PatientList(generics.ListCreateAPIView):
     queryset = Registration.objects.all()
@@ -130,8 +170,7 @@ class DeactivateAccountView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-from .models import GoalsAssessment, leaveform, DevelopmentGoals
-from .serializers import GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer
+
 
 class LeaveFormView(APIView):
     def get(self, request):
@@ -161,11 +200,7 @@ class LeaveFormView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-import gridfs
-import certifi
-from bson.objectid import ObjectId
-from django.conf import settings
-from dotenv import load_dotenv
+
 
 load_dotenv()  # Load from .env if present
 
@@ -303,6 +338,54 @@ class GoalsAssessmentDetailView(APIView):
         goal.delete()
         return Response({"message": "Assessment and associated media deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
+def enrich_development_goals_data(data):
+    try:
+        therapy_map = {}
+        for t in db['milestone_backend_therapydetails'].find():
+            t_name = t.get('therapy_name', '')
+            if 'therapy_id' in t and t['therapy_id']:
+                therapy_map[str(t['therapy_id'])] = t_name
+            if '_id' in t:
+                therapy_map[str(t['_id'])] = t_name
+
+        domain_map = {}
+        for d in db['milestone_backend_goaldomain'].find():
+            d_name = d.get('name', '')
+            if 'domain_no' in d and d['domain_no']:
+                domain_map[str(d['domain_no'])] = d_name
+            if '_id' in d:
+                domain_map[str(d['_id'])] = d_name
+
+        level_map = {}
+        for l in db['milestone_backend_goallevel'].find():
+            l_name = l.get('name', '')
+            if 'level_id' in l and l['level_id']:
+                level_map[str(l['level_id'])] = l_name
+            if '_id' in l:
+                level_map[str(l['_id'])] = l_name
+
+        is_list = isinstance(data, list)
+        items = data if is_list else [data]
+
+        for doc in items:
+            if not isinstance(doc, dict):
+                continue
+            dev_goals = doc.get('development_goals', [])
+            if isinstance(dev_goals, list):
+                for g in dev_goals:
+                    if isinstance(g, dict):
+                        t_val = g.get('therapy', '')
+                        d_val = g.get('domain', '')
+                        l_val = g.get('level', '')
+
+                        g['therapy_name'] = therapy_map.get(str(t_val), t_val)
+                        g['domain_name'] = domain_map.get(str(d_val), d_val)
+                        g['level_name'] = level_map.get(str(l_val), l_val)
+        return data
+    except Exception as e:
+        print(f"Error enriching development goals: {e}")
+        return data
+
 class DevelopmentGoalsView(APIView):
     def get(self, request):
         reg_no = request.query_params.get('reg_no')
@@ -311,7 +394,8 @@ class DevelopmentGoalsView(APIView):
         
         goals = DevelopmentGoals.objects.filter(registration_number=reg_no).order_by('-date')
         serializer = DevelopmentGoalsSerializer(goals, many=True)
-        return Response(serializer.data)
+        data = enrich_development_goals_data(serializer.data)
+        return Response(data)
 
     def post(self, request):
         serializer = DevelopmentGoalsSerializer(data=request.data)
@@ -332,7 +416,8 @@ class DevelopmentGoalsDetailView(APIView):
         if not goal:
             return Response({"error": "Development Goal not found"}, status=status.HTTP_404_NOT_FOUND)
         serializer = DevelopmentGoalsSerializer(goal)
-        return Response(serializer.data)
+        data = enrich_development_goals_data(serializer.data)
+        return Response(data)
 
     def put(self, request, pk):
         goal = self.get_object(pk)
@@ -364,11 +449,7 @@ class FileDeleteView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-from .utils import compress_video
-import shutil
-import tempfile
 
-from rest_framework.parsers import MultiPartParser, FormParser
 
 class FileUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -472,8 +553,8 @@ class HistoryRecordingSheetView(APIView):
             record['_id'] = str(record['_id'])
             
             # Clean and parse any JSON strings in the raw record
-            from .reportDownloader import clean_record
-            record = clean_record(record)
+            if clean_record:
+                record = clean_record(record)
             
             # Resolve creator profile from Global DB
             created_by = record.get('created_by')
@@ -542,9 +623,6 @@ class AssessmentReportView(APIView):
             if not any([physio, pediatric, analysis, language, psychology]):
                 return Response({"error": "No assessments found for this patient"}, status=status.HTTP_404_NOT_FOUND)
 
-            # Clean records
-            from .reportDownloader import clean_record
-            
             def serialize_doc(doc):
                 if not doc:
                     return None
@@ -552,7 +630,19 @@ class AssessmentReportView(APIView):
                 for date_key in ['assessment_date', 'date', 'created_date', 'lastmodified_date']:
                     if date_key in doc and isinstance(doc[date_key], datetime):
                         doc[date_key] = doc[date_key].isoformat()
-                return clean_record(doc)
+                import json
+                for k, v in list(doc.items()):
+                    if isinstance(v, str) and (v.startswith('{') or v.startswith('[')):
+                        try:
+                            doc[k] = json.loads(v)
+                        except Exception:
+                            pass
+                if clean_record:
+                    try:
+                        doc = clean_record(doc)
+                    except Exception as err:
+                        print(f"Error cleaning record: {err}")
+                return doc
 
             physio = serialize_doc(physio)
             pediatric = serialize_doc(pediatric)
@@ -605,4 +695,74 @@ class AssessmentReportView(APIView):
             return Response(response_data)
         except Exception as e:
             traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PatientSessionAttendanceView(APIView):
+    def get(self, request):
+        reg_no = request.query_params.get('reg_no')
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+
+        query = {}
+        if reg_no:
+            query['registration_number'] = reg_no
+
+        if year:
+            try:
+                yr = int(year)
+                if month and month != 'All':
+                    mo = int(month)
+                    start_date = datetime(yr, mo, 1)
+                    if mo == 12:
+                        end_date = datetime(yr + 1, 1, 1)
+                    else:
+                        end_date = datetime(yr, mo + 1, 1)
+                    query['attendance_date'] = {'$gte': start_date, '$lt': end_date}
+                else:
+                    start_date = datetime(yr, 1, 1)
+                    end_date = datetime(yr + 1, 1, 1)
+                    query['attendance_date'] = {'$gte': start_date, '$lt': end_date}
+            except Exception as e:
+                print(f"Error filtering dates for session attendance: {e}")
+
+        try:
+            records = list(db['milestone_backend_patientsessionattendance'].find(query).sort('attendance_date', 1))
+            for r in records:
+                r['_id'] = str(r['_id'])
+                if 'attendance_date' in r and isinstance(r['attendance_date'], datetime):
+                    r['attendance_date'] = r['attendance_date'].strftime('%Y-%m-%d')
+                if 'created_date' in r and isinstance(r['created_date'], datetime):
+                    r['created_date'] = r['created_date'].isoformat()
+                if 'confirmed_date' in r and isinstance(r['confirmed_date'], datetime):
+                    r['confirmed_date'] = r['confirmed_date'].isoformat()
+            return Response(records)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def post(self, request):
+        data = request.data
+        try:
+            res = db['milestone_backend_patientsessionattendance'].insert_one(data)
+            return Response({"message": "Record created", "id": str(res.inserted_id)}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ConfirmSessionAttendanceView(APIView):
+    def post(self, request, pk):
+        try:
+            confirmed_by = request.data.get('confirmed_by', 'Staff')
+            result = db['milestone_backend_patientsessionattendance'].update_one(
+                {'_id': ObjectId(pk)},
+                {'$set': {
+                    'is_confirmed': True,
+                    'confirmed_by': confirmed_by,
+                    'confirmed_date': datetime.now()
+                }}
+            )
+            if result.matched_count == 0:
+                return Response({"error": "Session record not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"message": "Session confirmed successfully"}, status=status.HTTP_200_OK)
+        except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -1,6 +1,10 @@
 from django.urls import path
-from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView
-from .reportDownloader import HistorySheetPDFView, AssessmentReportPDFView
+try:
+    from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView, PatientSessionAttendanceView, ConfirmSessionAttendanceView
+    from .reportDownloader import HistorySheetPDFView, AssessmentReportPDFView
+except ImportError:
+    from MDC_Backend.views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView, PatientSessionAttendanceView, ConfirmSessionAttendanceView
+    from MDC_Backend.reportDownloader import HistorySheetPDFView, AssessmentReportPDFView
 
 urlpatterns = [
     path('patients/', PatientList.as_view(), name='patient-list'),
@@ -22,4 +26,6 @@ urlpatterns = [
     path('history-sheet/pdf/', HistorySheetPDFView.as_view(), name='history-sheet-pdf'),
     path('assessment-report/pdf/', AssessmentReportPDFView.as_view(), name='assessment-report-pdf'),
     path('assessment-report/', AssessmentReportView.as_view(), name='assessment-report'),
+    path('patient-session-attendance/', PatientSessionAttendanceView.as_view(), name='patient-session-attendance'),
+    path('patient-session-attendance/confirm/<str:pk>/', ConfirmSessionAttendanceView.as_view(), name='patient-session-attendance-confirm'),
 ]
