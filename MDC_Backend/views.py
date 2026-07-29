@@ -1036,37 +1036,38 @@ class NotificationSendView(APIView):
 
 class NotificationMarkReadView(APIView):
     """
-    Mark a notification as read (is_read=True, read_datetime=now) for a specific member reg_no.
-    Expected payload: {"notification_id": "NOTI/26/00005", "reg_no": "MDC/001/2025"}
+    Mark a notification as read (is_read=True, read_datetime=now, read_at=now) for a specific member reg_no.
+    Accepts notification_id (or _id or id) and reg_no.
     """
     def post(self, request):
-        notification_id = request.data.get('notification_id')
-        doc_id = request.data.get('_id')
+        notification_id = request.data.get('notification_id') or request.data.get('_id') or request.data.get('id')
         reg_no = request.data.get('reg_no')
 
-        if not (notification_id or doc_id) or not reg_no:
-            return Response({"error": "notification_id (or _id) and reg_no are required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not notification_id or not reg_no:
+            return Response({"error": "notification_id and reg_no are required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            notification = None
-            if notification_id:
+            # 1. Build PyMongo search query matching notification_id OR ObjectId _id OR string _id
+            search_query = {"$or": [{"notification_id": str(notification_id)}]}
+            if isinstance(notification_id, str) and len(notification_id) == 24:
                 try:
-                    notification = Notification.objects.get(notification_id=notification_id)
-                except Notification.DoesNotExist:
+                    search_query["$or"].append({"_id": ObjectId(notification_id)})
+                except Exception:
                     pass
+            search_query["$or"].append({"_id": str(notification_id)})
 
-            if not notification and doc_id and len(doc_id) == 24:
-                try:
-                    notification = Notification.objects.get(_id=ObjectId(doc_id))
-                except Notification.DoesNotExist:
-                    pass
+            doc = db['milestone_backend_notification'].find_one(search_query)
 
-            if not notification:
+            # If not found by ID, fallback to search for notification containing member reg_no
+            if not doc:
+                doc = db['milestone_backend_notification'].find_one({"members.reg_no": reg_no})
+
+            if not doc:
                 return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
 
-            members = notification.members or []
+            members = doc.get('members', [])
             member_found = False
-            now_str = datetime.now().isoformat()
+            now_str = timezone.now().isoformat()
 
             for member in members:
                 if member.get('reg_no') == reg_no:
@@ -1079,13 +1080,14 @@ class NotificationMarkReadView(APIView):
             if not member_found:
                 return Response({"error": f"Member {reg_no} not found in notification members"}, status=status.HTTP_404_NOT_FOUND)
 
-            notification.members = members
-            notification.lastmodified_date = timezone.now()
-            notification.save()
+            db['milestone_backend_notification'].update_one(
+                {"_id": doc['_id']},
+                {"$set": {"members": members, "lastmodified_date": timezone.now()}}
+            )
 
             return Response({
                 "message": "Notification marked as read successfully",
-                "notification_id": notification.notification_id,
+                "notification_id": doc.get('notification_id', str(doc['_id'])),
                 "reg_no": reg_no,
                 "is_read": True,
                 "read_datetime": now_str,
@@ -1093,7 +1095,9 @@ class NotificationMarkReadView(APIView):
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
+            traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class UserNotificationListView(APIView):
