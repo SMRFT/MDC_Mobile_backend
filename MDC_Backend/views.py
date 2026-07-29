@@ -816,15 +816,25 @@ def process_pending_notifications(target_reg_no=None):
         if not send_fcm_push:
             return 0
 
-        # Direct PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
-        query = {"members": {"$elemMatch": {"is_send": {"$ne": True}}}}
+        # Bulletproof PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
+        query = {
+            "$or": [
+                {"members.is_send": False},
+                {"members.is_send": "false"},
+                {"members.is_send": "False"},
+                {"members.is_send": None},
+                {"members.is_send": {"$exists": False}},
+                {"is_send": False}
+            ]
+        }
         if target_reg_no:
             clean_target = str(target_reg_no).strip()
-            query["members"]["$elemMatch"]["reg_no"] = {"$regex": f"^{re.escape(clean_target)}$", "$options": "i"}
+            query["$or"].append({"members.reg_no": {"$regex": f"^{re.escape(clean_target)}$", "$options": "i"}})
 
         pending_docs = list(db['milestone_backend_notification'].find(query))
         now_str = timezone.now().isoformat()
         processed_count = 0
+
 
         for doc in pending_docs:
             members = doc.get('members', [])
