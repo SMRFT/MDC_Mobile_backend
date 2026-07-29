@@ -123,6 +123,23 @@ class Notification(AuditModel):
         return f"{self.notification_id} - {self.title}"
 
 
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+@receiver(post_save, sender=Notification)
+def trigger_push_on_notification_save(sender, instance, created, **kwargs):
+    """
+    Automatically triggers FCM push notification as soon as a Notification model record is created or saved.
+    """
+    try:
+        from MDC_Backend.views import process_pending_notifications
+        import threading
+        threading.Thread(target=process_pending_notifications, daemon=True).start()
+    except Exception as e:
+        print(f"Error in post_save signal for Notification: {e}")
+
+
+
 
 class DevelopmentGoals(AuditModel):
     _id = models.ObjectIdField(primary_key=True)
