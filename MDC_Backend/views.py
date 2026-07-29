@@ -812,8 +812,8 @@ def process_pending_notifications(target_reg_no=None):
         if not send_fcm_push:
             return 0
 
-        # Direct PyMongo query for documents containing unsent members
-        query = {"members": {"$elemMatch": {"is_send": False}}}
+        # Direct PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
+        query = {"members": {"$elemMatch": {"is_send": {"$ne": True}}}}
         if target_reg_no:
             query["members"]["$elemMatch"]["reg_no"] = target_reg_no
 
@@ -835,7 +835,8 @@ def process_pending_notifications(target_reg_no=None):
                 if target_reg_no and reg_no != target_reg_no:
                     continue
 
-                if reg_no and not is_send:
+                if reg_no and is_send not in (True, "true", "True", 1):
+
                     # Lookup FCM token from milestone_backend_appusers
                     user_doc = db['milestone_backend_appusers'].find_one({"reg_no": reg_no})
                     if user_doc and user_doc.get('fcm_token'):
