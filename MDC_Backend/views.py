@@ -826,6 +826,15 @@ def process_pending_notifications(target_reg_no=None):
 
         for doc in pending_docs:
             members = doc.get('members', [])
+            # Fallback if members array is empty but top-level reg_no exists
+            if not members and doc.get('reg_no'):
+                members = [{
+                    "reg_no": doc.get('reg_no'),
+                    "name": doc.get('name', ''),
+                    "is_send": doc.get('is_send', False),
+                    "is_read": doc.get('is_read', False)
+                }]
+
             updated = False
             title = doc.get('title') or doc.get('heading') or doc.get('message_title') or doc.get('subject') or 'MDC Mobile'
             sub = doc.get('sub') or doc.get('body') or doc.get('message') or doc.get('description') or ''
@@ -882,7 +891,7 @@ def process_pending_notifications(target_reg_no=None):
                             fcm_token=fcm_token,
                             success=success,
                             fcm_response=res_info,
-                            trigger_source="BACKGROUND_SCHEDULER" if not target_reg_no else "FCM_TOKEN_REGISTER_FLUSH"
+                            trigger_source="BACKGROUND_SCHEDULER" if not target_reg_no else "USER_POLL_FLUSH"
                         )
                         if success:
                             m['is_send'] = True
@@ -900,6 +909,25 @@ def process_pending_notifications(target_reg_no=None):
     except Exception as e:
         print(f"Error in process_pending_notifications: {e}")
         return 0
+
+
+_scheduler_started = False
+def ensure_notification_scheduler():
+    global _scheduler_started
+    if not _scheduler_started:
+        _scheduler_started = True
+        def scheduler_loop():
+            while True:
+                try:
+                    process_pending_notifications()
+                except Exception as e:
+                    print(f"Error in notification scheduler loop: {e}")
+                time.sleep(10)
+        t = threading.Thread(target=scheduler_loop, daemon=True)
+        t.start()
+
+ensure_notification_scheduler()
+
 
 
 
@@ -1245,6 +1273,13 @@ class UserNotificationListView(APIView):
             return Response({"error": "reg_no parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         reg_no = str(reg_no).rstrip('/')
+
+        # 1. Flush & send any pending unsent notifications for this reg_no OR overall
+        try:
+            process_pending_notifications(target_reg_no=reg_no)
+        except Exception as err:
+            print(f"Error in process_pending_notifications during list fetch: {err}")
+
 
         try:
             notifications = Notification.objects.all().order_by('-created_date')
