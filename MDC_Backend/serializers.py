@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from .models import Registration, PatientAttendance, GoalsAssessment, leaveform, DevelopmentGoals
-import json
+from .models import Registration, PatientAttendance, GoalsAssessment, leaveform, DevelopmentGoals, Notification, appusers
 
 class RegistrationSerializer(serializers.ModelSerializer):
     id = serializers.CharField(required=False)
@@ -66,4 +65,13 @@ class LeaveFormSerializer(serializers.ModelSerializer):
     id = serializers.CharField(required=False)
     class Meta:
         model = leaveform
-        fields = '__all__'
+        fields = '__all__'
+
+class NotificationSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(required=False)
+    members = CleanJSONField(required=False)
+
+    class Meta:
+        model = Notification
+        fields = '__all__'
+

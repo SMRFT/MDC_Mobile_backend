@@ -101,12 +101,27 @@ class appusers(AuditModel):
     email = models.EmailField(null=True, blank=True)
     password = models.CharField(max_length=100)
     previous_password = models.CharField(max_length=100,null=True, blank=True)
+    fcm_token = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     
     class Meta:
         db_table = 'milestone_backend_appusers'
     def __str__(self):
         return self.reg_no
+
+class Notification(AuditModel):
+    _id = models.ObjectIdField(primary_key=True)
+    notification_id = models.CharField(max_length=50, blank=True)
+    title = models.CharField(max_length=255)
+    sub = models.TextField(blank=True, null=True)
+    members = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = 'milestone_backend_notification'
+
+    def __str__(self):
+        return f"{self.notification_id} - {self.title}"
+
 
 
 class DevelopmentGoals(AuditModel):
