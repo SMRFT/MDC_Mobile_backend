@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import tempfile
 import traceback
@@ -8,6 +9,7 @@ from datetime import datetime
 from django.utils import timezone
 from bson.objectid import ObjectId
 from dotenv import load_dotenv
+
 
 from django.conf import settings
 from rest_framework import generics, status
@@ -815,7 +817,8 @@ def process_pending_notifications(target_reg_no=None):
         # Direct PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
         query = {"members": {"$elemMatch": {"is_send": {"$ne": True}}}}
         if target_reg_no:
-            query["members"]["$elemMatch"]["reg_no"] = target_reg_no
+            clean_target = str(target_reg_no).strip()
+            query["members"]["$elemMatch"]["reg_no"] = {"$regex": f"^{re.escape(clean_target)}$", "$options": "i"}
 
         pending_docs = list(db['milestone_backend_notification'].find(query))
         now_str = timezone.now().isoformat()
@@ -824,38 +827,56 @@ def process_pending_notifications(target_reg_no=None):
         for doc in pending_docs:
             members = doc.get('members', [])
             updated = False
-            title = doc.get('title', '')
-            sub = doc.get('sub', '')
-            noti_id = doc.get('notification_id', '')
+            title = doc.get('title') or doc.get('heading') or doc.get('message_title') or doc.get('subject') or 'MDC Mobile'
+            sub = doc.get('sub') or doc.get('body') or doc.get('message') or doc.get('description') or ''
+            noti_id = str(doc.get('notification_id') or doc.get('_id') or '')
 
             for m in members:
                 reg_no = m.get('reg_no')
                 is_send = m.get('is_send', False)
+                clean_reg = str(reg_no or '').strip()
 
-                if target_reg_no and reg_no != target_reg_no:
+                if target_reg_no and clean_reg.lower() != str(target_reg_no).strip().lower():
                     continue
 
-                if reg_no and is_send not in (True, "true", "True", 1):
-
-                    # Lookup FCM token from milestone_backend_appusers
-                    user_doc = db['milestone_backend_appusers'].find_one({"reg_no": reg_no})
+                if clean_reg and is_send not in (True, "true", "True", 1):
+                    # Lookup FCM token from milestone_backend_appusers with multi-fallback
+                    fcm_token = None
+                    user_doc = db['milestone_backend_appusers'].find_one({"reg_no": clean_reg})
+                    if not user_doc or not user_doc.get('fcm_token'):
+                        user_doc = db['milestone_backend_appusers'].find_one({
+                            "reg_no": {"$regex": f"^{re.escape(clean_reg)}$", "$options": "i"}
+                        })
                     if user_doc and user_doc.get('fcm_token'):
                         fcm_token = user_doc.get('fcm_token')
-                        success, res_info = send_fcm_push(
-                            fcm_token=fcm_token,
-                            title=title,
-                            body=sub or '',
-                            data={
-                                "notification_id": noti_id,
-                                "reg_no": reg_no,
-                                "title": title,
-                                "sub": sub or ''
-                            }
-                        )
+                    else:
+                        try:
+                            user_qs = list(appusers.objects.filter(reg_no__iexact=clean_reg))
+                            if user_qs and user_qs[0].fcm_token:
+                                fcm_token = user_qs[0].fcm_token
+                        except Exception:
+                            pass
+
+                    if fcm_token:
+                        try:
+                            success, res_info = send_fcm_push(
+                                fcm_token=fcm_token,
+                                title=title,
+                                body=sub or '',
+                                data={
+                                    "notification_id": noti_id,
+                                    "reg_no": clean_reg,
+                                    "title": title,
+                                    "sub": sub or ''
+                                }
+                            )
+                        except Exception as push_err:
+                            success, res_info = False, str(push_err)
+
                         # Save DB Log in milestone_backend_notification_logs
                         log_notification_event(
                             notification_id=noti_id,
-                            reg_no=reg_no,
+                            reg_no=clean_reg,
                             title=title,
                             body=sub,
                             fcm_token=fcm_token,
@@ -879,6 +900,7 @@ def process_pending_notifications(target_reg_no=None):
     except Exception as e:
         print(f"Error in process_pending_notifications: {e}")
         return 0
+
 
 
 
