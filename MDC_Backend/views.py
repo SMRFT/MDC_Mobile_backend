@@ -1,6 +1,8 @@
 import os
+import sys
 import re
 import shutil
+
 import tempfile
 import traceback
 import gridfs
@@ -914,19 +916,26 @@ def process_pending_notifications(target_reg_no=None):
 _scheduler_started = False
 def ensure_notification_scheduler():
     global _scheduler_started
+    # In Django runserver auto-reloader, ensure thread runs in main worker process
+    if os.environ.get('RUN_MAIN') != 'true' and 'runserver' in sys.argv:
+        return
+
     if not _scheduler_started:
         _scheduler_started = True
         def scheduler_loop():
+            print("[BACKGROUND DAEMON] Notification Loop STARTED (Polling MongoDB every 5s)")
             while True:
+
                 try:
                     process_pending_notifications()
                 except Exception as e:
                     print(f"Error in notification scheduler loop: {e}")
-                time.sleep(10)
+                time.sleep(5)
         t = threading.Thread(target=scheduler_loop, daemon=True)
         t.start()
 
 ensure_notification_scheduler()
+
 
 
 

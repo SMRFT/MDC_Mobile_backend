@@ -7,8 +7,10 @@ class MdcBackendConfig(AppConfig):
 
     def ready(self):
         try:
-            from .views import ensure_notification_scheduler
+            from MDC_Backend.views import ensure_notification_scheduler
             ensure_notification_scheduler()
+            print("Background Notification Scheduler initialized successfully!")
         except Exception as e:
             print(f"Error starting notification scheduler in AppConfig: {e}")
+
 
