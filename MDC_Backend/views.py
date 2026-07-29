@@ -1048,72 +1048,72 @@ class NotificationMarkReadView(APIView):
             return Response({"error": "reg_no is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            doc = None
             now_str = timezone.now().isoformat()
+            now_tz = timezone.now()
 
-            # 1. Search by notification_id / _id if provided
+            query_list = []
             if notification_id:
                 clean_id_str = str(notification_id).strip()
-                search_query = {"$or": [
-                    {"notification_id": clean_id_str},
-                    {"_id": clean_id_str}
-                ]}
+                query_list.append({"notification_id": clean_id_str})
+                query_list.append({"_id": clean_id_str})
                 if len(clean_id_str) == 24:
                     try:
-                        search_query["$or"].append({"_id": ObjectId(clean_id_str)})
+                        query_list.append({"_id": ObjectId(clean_id_str)})
                     except Exception:
                         pass
 
-                doc = db['milestone_backend_notification'].find_one(search_query)
+            query_list.append({"members": {"$elemMatch": {"reg_no": reg_no}}})
 
-            # 2. Fallback search by reg_no in members array
-            if not doc:
-                doc = db['milestone_backend_notification'].find_one({
-                    "members": {"$elemMatch": {"reg_no": reg_no}}
-                })
+            docs = list(db['milestone_backend_notification'].find({"$or": query_list}))
 
-            # 3. If still not found, find the latest notification in the collection
-            if not doc:
-                latest_docs = list(db['milestone_backend_notification'].find().sort("_id", -1).limit(1))
-                if latest_docs:
-                    doc = latest_docs[0]
-
-            if not doc:
+            if not docs:
                 return Response({"error": "No notification documents found"}, status=status.HTTP_404_NOT_FOUND)
 
-            members = doc.get('members', [])
-            member_found = False
+            updated_count = 0
+            for doc in docs:
+                doc_noti_id = str(doc.get('notification_id') or '')
+                doc_id_str = str(doc['_id'])
+                
+                # If a specific notification_id was requested, filter for matching doc
+                if notification_id:
+                    clean_id_str = str(notification_id).strip()
+                    if clean_id_str != doc_noti_id and clean_id_str != doc_id_str:
+                        continue
 
-            for member in members:
-                m_reg = (member.get('reg_no') or '').strip()
-                if m_reg == reg_no or m_reg.lower() == reg_no.lower():
-                    member['is_read'] = True
-                    member['read_datetime'] = now_str
-                    member['read_at'] = now_str
-                    member_found = True
-                    break
+                members = doc.get('members', [])
+                member_found = False
 
-            # If member was not in array, append member object to members array so read status is recorded
-            if not member_found:
-                members.append({
-                    "reg_no": reg_no,
-                    "name": "",
-                    "is_send": True,
-                    "is_read": True,
-                    "sent_datetime": now_str,
-                    "read_datetime": now_str,
-                    "read_at": now_str
-                })
+                for member in members:
+                    m_reg = (member.get('reg_no') or '').strip()
+                    if m_reg == reg_no or m_reg.lower() == reg_no.lower():
+                        member['is_read'] = True
+                        member['read_datetime'] = now_str
+                        member['read_at'] = now_str
+                        member_found = True
+                        break
 
-            db['milestone_backend_notification'].update_one(
-                {"_id": doc['_id']},
-                {"$set": {"members": members, "lastmodified_date": timezone.now()}}
-            )
+                if not member_found:
+                    members.append({
+                        "reg_no": reg_no,
+                        "name": "",
+                        "is_send": True,
+                        "is_read": True,
+                        "sent_datetime": now_str,
+                        "read_datetime": now_str,
+                        "read_at": now_str
+                    })
+
+                db['milestone_backend_notification'].update_one(
+                    {"_id": doc['_id']},
+                    {"$set": {"members": members, "lastmodified_date": now_tz}}
+                )
+                updated_count += 1
 
             return Response({
                 "message": "Notification marked as read successfully",
-                "notification_id": doc.get('notification_id', str(doc['_id'])),
+                "notification_id": str(notification_id or ''),
                 "reg_no": reg_no,
+                "updated_count": updated_count,
                 "is_read": True,
                 "read_datetime": now_str,
                 "read_at": now_str
@@ -1122,6 +1122,7 @@ class NotificationMarkReadView(APIView):
         except Exception as e:
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
