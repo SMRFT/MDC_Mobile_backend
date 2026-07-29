@@ -781,6 +781,27 @@ class ConfirmSessionAttendanceView(APIView):
 import threading
 import time
 
+def log_notification_event(notification_id, reg_no, title, body, fcm_token, success, fcm_response, trigger_source="BACKGROUND_SCHEDULER"):
+    """
+    Logs every triggered push notification attempt to MongoDB collection milestone_backend_notification_logs.
+    """
+    try:
+        log_entry = {
+            "notification_id": str(notification_id or ""),
+            "reg_no": str(reg_no or ""),
+            "title": str(title or ""),
+            "body": str(body or ""),
+            "fcm_token": str(fcm_token or ""),
+            "status": "SUCCESS" if success else "FAILED",
+            "fcm_response": str(fcm_response or ""),
+            "triggered_at": timezone.now(),
+            "trigger_source": trigger_source
+        }
+        db['milestone_backend_notification_logs'].insert_one(log_entry)
+    except Exception as e:
+        print(f"Error saving notification DB log: {e}")
+
+
 def process_pending_notifications(target_reg_no=None):
     """
     Scans milestone_backend_notification collection directly in MongoDB for any document 
@@ -819,7 +840,7 @@ def process_pending_notifications(target_reg_no=None):
                     user_doc = db['milestone_backend_appusers'].find_one({"reg_no": reg_no})
                     if user_doc and user_doc.get('fcm_token'):
                         fcm_token = user_doc.get('fcm_token')
-                        success, _ = send_fcm_push(
+                        success, res_info = send_fcm_push(
                             fcm_token=fcm_token,
                             title=title,
                             body=sub or '',
@@ -829,6 +850,17 @@ def process_pending_notifications(target_reg_no=None):
                                 "title": title,
                                 "sub": sub or ''
                             }
+                        )
+                        # Save DB Log in milestone_backend_notification_logs
+                        log_notification_event(
+                            notification_id=noti_id,
+                            reg_no=reg_no,
+                            title=title,
+                            body=sub,
+                            fcm_token=fcm_token,
+                            success=success,
+                            fcm_response=res_info,
+                            trigger_source="BACKGROUND_SCHEDULER" if not target_reg_no else "FCM_TOKEN_REGISTER_FLUSH"
                         )
                         if success:
                             m['is_send'] = True
@@ -846,6 +878,7 @@ def process_pending_notifications(target_reg_no=None):
     except Exception as e:
         print(f"Error in process_pending_notifications: {e}")
         return 0
+
 
 
 
@@ -960,6 +993,17 @@ class NotificationView(APIView):
                         is_send = True
                         sent_datetime = now_str
 
+                    log_notification_event(
+                        notification_id=data['notification_id'],
+                        reg_no=reg_no,
+                        title=title,
+                        body=sub,
+                        fcm_token=fcm_token,
+                        success=success,
+                        fcm_response=res_info,
+                        trigger_source="POST_NOTIFICATION_API"
+                    )
+
             updated_members.append({
                 "reg_no": reg_no,
                 "name": name,
@@ -1004,8 +1048,9 @@ class NotificationSendView(APIView):
                 if reg_no and not member.get('is_send', False) and send_fcm_push:
                     user_qs = list(appusers.objects.filter(reg_no=reg_no))
                     if user_qs and user_qs[0].fcm_token:
-                        success, _ = send_fcm_push(
-                            fcm_token=user_qs[0].fcm_token,
+                        fcm_token = user_qs[0].fcm_token
+                        success, res_info = send_fcm_push(
+                            fcm_token=fcm_token,
                             title=title,
                             body=sub,
                             data={
@@ -1014,6 +1059,16 @@ class NotificationSendView(APIView):
                                 "title": title,
                                 "sub": sub
                             }
+                        )
+                        log_notification_event(
+                            notification_id=notification.notification_id,
+                            reg_no=reg_no,
+                            title=title,
+                            body=sub,
+                            fcm_token=fcm_token,
+                            success=success,
+                            fcm_response=res_info,
+                            trigger_source="RESEND_API"
                         )
                         if success:
                             member['is_send'] = True
@@ -1032,6 +1087,33 @@ class NotificationSendView(APIView):
             return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NotificationLogsView(APIView):
+    """
+    Fetch push notification log history from milestone_backend_notification_logs.
+    Query params: ?reg_no=MDC/155/2025
+    """
+    def get(self, request):
+        try:
+            reg_no = request.query_params.get('reg_no')
+            query = {}
+            if reg_no:
+                query["reg_no"] = reg_no.strip()
+
+            logs_cursor = db['milestone_backend_notification_logs'].find(query).sort("_id", -1).limit(100)
+            logs_list = []
+            for item in logs_cursor:
+                item['id'] = str(item['_id'])
+                del item['_id']
+                if 'triggered_at' in item and isinstance(item['triggered_at'], datetime):
+                    item['triggered_at'] = item['triggered_at'].isoformat()
+                logs_list.append(item)
+
+            return Response(logs_list, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class NotificationMarkReadView(APIView):
