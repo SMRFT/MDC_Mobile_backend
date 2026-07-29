@@ -1,9 +1,9 @@
 from django.urls import path
 try:
-    from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView, PatientSessionAttendanceView, ConfirmSessionAttendanceView
+    from .views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView, PatientSessionAttendanceView, ConfirmSessionAttendanceView, RegisterFCMTokenView, NotificationView, NotificationSendView, NotificationMarkReadView, UserNotificationListView
     from .reportDownloader import HistorySheetPDFView, AssessmentReportPDFView
 except ImportError:
-    from MDC_Backend.views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView, PatientSessionAttendanceView, ConfirmSessionAttendanceView
+    from MDC_Backend.views import PatientList, PatientDetail, PatientSearchView, PatientPhoneSearchView, RegisterUserView, ChangePasswordView, DeactivateAccountView, GoalsAssessmentView, GoalsAssessmentDetailView, FileUploadView, FileDownloadView, FileDeleteView, LeaveFormView, DevelopmentGoalsView, DevelopmentGoalsDetailView, HistoryRecordingSheetView, AssessmentReportView, PatientSessionAttendanceView, ConfirmSessionAttendanceView, RegisterFCMTokenView, NotificationView, NotificationSendView, NotificationMarkReadView, UserNotificationListView
     from MDC_Backend.reportDownloader import HistorySheetPDFView, AssessmentReportPDFView
 
 urlpatterns = [
@@ -28,4 +28,12 @@ urlpatterns = [
     path('assessment-report/', AssessmentReportView.as_view(), name='assessment-report'),
     path('patient-session-attendance/', PatientSessionAttendanceView.as_view(), name='patient-session-attendance'),
     path('patient-session-attendance/confirm/<str:pk>/', ConfirmSessionAttendanceView.as_view(), name='patient-session-attendance-confirm'),
+    path('register-fcm-token/', RegisterFCMTokenView.as_view(), name='register-fcm-token'),
+    path('notifications/', NotificationView.as_view(), name='notifications'),
+    path('notifications/send/<str:pk>/', NotificationSendView.as_view(), name='notification-send'),
+    path('notifications/mark-read/', NotificationMarkReadView.as_view(), name='notification-mark-read'),
+    path('user-notifications/', UserNotificationListView.as_view(), name='user-notifications-query'),
+    path('notifications/user/<path:reg_no>', UserNotificationListView.as_view(), name='user-notifications'),
 ]
+
+

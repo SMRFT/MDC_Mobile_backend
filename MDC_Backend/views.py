@@ -5,6 +5,7 @@ import traceback
 import gridfs
 import certifi
 from datetime import datetime
+from django.utils import timezone
 from bson.objectid import ObjectId
 from dotenv import load_dotenv
 
@@ -16,20 +17,29 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from pymongo import MongoClient
 
 try:
-    from .models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals
+    from .models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals, Notification
 except ImportError:
-    from MDC_Backend.models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals
+    from MDC_Backend.models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals, Notification
 
 try:
     from .serializers import (
         RegistrationSerializer, PatientAttendanceSerializer,
-        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer
+        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer, NotificationSerializer
     )
 except ImportError:
     from MDC_Backend.serializers import (
         RegistrationSerializer, PatientAttendanceSerializer,
-        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer
+        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer, NotificationSerializer
     )
+
+try:
+    from .fcm_service import send_fcm_push
+except ImportError:
+    try:
+        from MDC_Backend.fcm_service import send_fcm_push
+    except ImportError:
+        send_fcm_push = None
+
 
 try:
     from .utils import compress_video
@@ -766,3 +776,385 @@ class ConfirmSessionAttendanceView(APIView):
             return Response({"message": "Session confirmed successfully"}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+import threading
+import time
+
+def process_pending_notifications(target_reg_no=None):
+    """
+    Scans milestone_backend_notification collection directly in MongoDB for any document 
+    where members.is_send is False (created by any external admin project or system).
+    Sends FCM push notification to target members and updates is_send = True & sent_datetime = NOW.
+    """
+    try:
+        if not send_fcm_push:
+            return 0
+
+        # Direct PyMongo query for documents containing unsent members
+        query = {"members": {"$elemMatch": {"is_send": False}}}
+        if target_reg_no:
+            query["members"]["$elemMatch"]["reg_no"] = target_reg_no
+
+        pending_docs = list(db['milestone_backend_notification'].find(query))
+        now_str = timezone.now().isoformat()
+        processed_count = 0
+
+        for doc in pending_docs:
+            members = doc.get('members', [])
+            updated = False
+            title = doc.get('title', '')
+            sub = doc.get('sub', '')
+            noti_id = doc.get('notification_id', '')
+
+            for m in members:
+                reg_no = m.get('reg_no')
+                is_send = m.get('is_send', False)
+
+                if target_reg_no and reg_no != target_reg_no:
+                    continue
+
+                if reg_no and not is_send:
+                    # Lookup FCM token from milestone_backend_appusers
+                    user_doc = db['milestone_backend_appusers'].find_one({"reg_no": reg_no})
+                    if user_doc and user_doc.get('fcm_token'):
+                        fcm_token = user_doc.get('fcm_token')
+                        success, _ = send_fcm_push(
+                            fcm_token=fcm_token,
+                            title=title,
+                            body=sub or '',
+                            data={
+                                "notification_id": noti_id,
+                                "reg_no": reg_no,
+                                "title": title,
+                                "sub": sub or ''
+                            }
+                        )
+                        if success:
+                            m['is_send'] = True
+                            m['sent_datetime'] = now_str
+                            updated = True
+                            processed_count += 1
+
+            if updated:
+                db['milestone_backend_notification'].update_one(
+                    {"_id": doc['_id']},
+                    {"$set": {"members": members, "lastmodified_date": timezone.now()}}
+                )
+
+        return processed_count
+    except Exception as e:
+        print(f"Error in process_pending_notifications: {e}")
+        return 0
+
+
+
+_scheduler_started = False
+def ensure_notification_scheduler():
+    global _scheduler_started
+    if not _scheduler_started:
+        _scheduler_started = True
+        def scheduler_loop():
+            while True:
+                try:
+                    process_pending_notifications()
+                except Exception as e:
+                    print(f"Error in notification scheduler loop: {e}")
+                time.sleep(15)
+        t = threading.Thread(target=scheduler_loop, daemon=True)
+        t.start()
+
+ensure_notification_scheduler()
+
+
+class RegisterFCMTokenView(APIView):
+    """Register or update FCM Token for an app user (reg_no) and process pending unsent notifications."""
+    def post(self, request):
+        reg_no = request.data.get('reg_no')
+        fcm_token = request.data.get('fcm_token')
+
+        if not reg_no or not fcm_token:
+            return Response({"error": "reg_no and fcm_token are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            users = list(appusers.objects.filter(reg_no=reg_no))
+            if not users:
+                return Response({"error": f"App user with reg_no {reg_no} not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            user = users[0]
+            user.fcm_token = fcm_token
+            user.lastmodified_date = timezone.now()
+            user.save()
+
+            # Automatically push any pending unsent notifications for this user now that token is registered
+            pending_sent = process_pending_notifications(target_reg_no=reg_no)
+
+            return Response({
+                "message": "FCM token registered successfully",
+                "reg_no": reg_no,
+                "pending_notifications_sent": pending_sent
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class NotificationView(APIView):
+    """
+    List notifications or Create a new notification.
+    On creation:
+    1. Generates auto notification_id (e.g. NOTI/26/00005) if missing.
+    2. Sends FCM push notification to each member in members list.
+    3. Updates is_send=True and sent_datetime on successful send.
+    """
+    def get(self, request):
+        try:
+            notifications = Notification.objects.all().order_by('-created_date')
+            serializer = NotificationSerializer(notifications, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def post(self, request):
+        data = request.data.copy()
+        
+        # 1. Generate notification_id if missing
+        if not data.get('notification_id'):
+            year_str = datetime.now().strftime('%y')
+            count = Notification.objects.count() + 1
+            data['notification_id'] = f"NOTI/{year_str}/{count:05d}"
+
+        title = data.get('title', '')
+        sub = data.get('sub', '')
+        members = data.get('members', [])
+
+        # Process push notification for members
+        now_str = datetime.now().isoformat()
+        updated_members = []
+        
+        for member in members:
+            reg_no = member.get('reg_no')
+            name = member.get('name', '')
+            is_send = member.get('is_send', False)
+            is_read = member.get('is_read', False)
+            sent_datetime = member.get('sent_datetime', None)
+            read_datetime = member.get('read_datetime', None)
+
+            # Try to send FCM push if not sent yet
+            if reg_no and not is_send and send_fcm_push:
+                user_qs = list(appusers.objects.filter(reg_no=reg_no))
+                if user_qs and user_qs[0].fcm_token:
+                    fcm_token = user_qs[0].fcm_token
+                    success, res_info = send_fcm_push(
+                        fcm_token=fcm_token,
+                        title=title,
+                        body=sub,
+                        data={
+                            "notification_id": data['notification_id'],
+                            "reg_no": reg_no,
+                            "title": title,
+                            "sub": sub
+                        }
+                    )
+                    if success:
+                        is_send = True
+                        sent_datetime = now_str
+
+            updated_members.append({
+                "reg_no": reg_no,
+                "name": name,
+                "is_send": is_send,
+                "is_read": is_read,
+                "sent_datetime": sent_datetime,
+                "read_datetime": read_datetime
+            })
+
+        data['members'] = updated_members
+
+        serializer = NotificationSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class NotificationSendView(APIView):
+    """
+    Trigger manual push notification send for an existing notification document.
+    """
+    def post(self, request, pk):
+        try:
+            notification = None
+            if len(pk) == 24:
+                try:
+                    notification = Notification.objects.get(_id=ObjectId(pk))
+                except Exception:
+                    pass
+            if not notification:
+                notification = Notification.objects.get(notification_id=pk)
+
+            title = notification.title
+            sub = notification.sub or ''
+            members = notification.members or []
+            now_str = datetime.now().isoformat()
+            updated_any = False
+
+            for member in members:
+                reg_no = member.get('reg_no')
+                if reg_no and not member.get('is_send', False) and send_fcm_push:
+                    user_qs = list(appusers.objects.filter(reg_no=reg_no))
+                    if user_qs and user_qs[0].fcm_token:
+                        success, _ = send_fcm_push(
+                            fcm_token=user_qs[0].fcm_token,
+                            title=title,
+                            body=sub,
+                            data={
+                                "notification_id": notification.notification_id,
+                                "reg_no": reg_no,
+                                "title": title,
+                                "sub": sub
+                            }
+                        )
+                        if success:
+                            member['is_send'] = True
+                            member['sent_datetime'] = now_str
+                            updated_any = True
+
+            if updated_any:
+                notification.members = members
+                notification.lastmodified_date = timezone.now()
+                notification.save()
+
+            serializer = NotificationSerializer(notification)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Notification.DoesNotExist:
+            return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NotificationMarkReadView(APIView):
+    """
+    Mark a notification as read (is_read=True, read_datetime=now) for a specific member reg_no.
+    Expected payload: {"notification_id": "NOTI/26/00005", "reg_no": "MDC/001/2025"}
+    """
+    def post(self, request):
+        notification_id = request.data.get('notification_id')
+        doc_id = request.data.get('_id')
+        reg_no = request.data.get('reg_no')
+
+        if not (notification_id or doc_id) or not reg_no:
+            return Response({"error": "notification_id (or _id) and reg_no are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            notification = None
+            if notification_id:
+                try:
+                    notification = Notification.objects.get(notification_id=notification_id)
+                except Notification.DoesNotExist:
+                    pass
+
+            if not notification and doc_id and len(doc_id) == 24:
+                try:
+                    notification = Notification.objects.get(_id=ObjectId(doc_id))
+                except Notification.DoesNotExist:
+                    pass
+
+            if not notification:
+                return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            members = notification.members or []
+            member_found = False
+            now_str = datetime.now().isoformat()
+
+            for member in members:
+                if member.get('reg_no') == reg_no:
+                    member['is_read'] = True
+                    member['read_datetime'] = now_str
+                    member['read_at'] = now_str
+                    member_found = True
+                    break
+
+            if not member_found:
+                return Response({"error": f"Member {reg_no} not found in notification members"}, status=status.HTTP_404_NOT_FOUND)
+
+            notification.members = members
+            notification.lastmodified_date = timezone.now()
+            notification.save()
+
+            return Response({
+                "message": "Notification marked as read successfully",
+                "notification_id": notification.notification_id,
+                "reg_no": reg_no,
+                "is_read": True,
+                "read_datetime": now_str,
+                "read_at": now_str
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UserNotificationListView(APIView):
+    """
+    Fetch all notifications relevant for a given member reg_no.
+    Returns array of notifications with member-specific is_read, is_send, sent_datetime, read_datetime, read_at status.
+    Filters out notifications that have been marked as read for more than 24 hours.
+    """
+    def get(self, request, reg_no=None):
+        if not reg_no:
+            reg_no = request.query_params.get('reg_no')
+        if not reg_no:
+            return Response({"error": "reg_no parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        reg_no = str(reg_no).rstrip('/')
+
+        try:
+            notifications = Notification.objects.all().order_by('-created_date')
+            user_notifications = []
+            now = datetime.now()
+
+            for noti in notifications:
+                members = noti.members or []
+                for m in members:
+                    if m.get('reg_no') == reg_no:
+                        is_read = m.get('is_read', False)
+                        read_dt_str = m.get('read_at') or m.get('read_datetime')
+
+                        # If notification was opened/read, check if 24 hours (86,400 seconds) have passed
+                        if is_read and read_dt_str:
+                            try:
+                                clean_dt_str = str(read_dt_str).replace('Z', '+00:00')
+                                read_dt = datetime.fromisoformat(clean_dt_str)
+                                if read_dt.tzinfo is not None:
+                                    read_dt = read_dt.replace(tzinfo=None)
+                                elapsed_seconds = (now - read_dt).total_seconds()
+                                if elapsed_seconds > 86400: # Exclude if marked as read > 24h ago
+                                    continue
+                            except Exception:
+                                pass
+
+                        user_notifications.append({
+                            "id": str(noti._id),
+                            "notification_id": noti.notification_id,
+                            "title": noti.title,
+                            "sub": noti.sub,
+                            "created_by": noti.created_by,
+                            "created_date": noti.created_date.isoformat() if noti.created_date else None,
+                            "reg_no": reg_no,
+                            "name": m.get('name'),
+                            "is_send": m.get('is_send', False),
+                            "is_read": is_read,
+                            "sent_datetime": m.get('sent_datetime'),
+                            "read_datetime": read_dt_str,
+                            "read_at": read_dt_str
+                        })
+                        break
+
+            return Response(user_notifications, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
