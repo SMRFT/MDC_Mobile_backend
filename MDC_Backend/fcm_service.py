@@ -1,8 +1,10 @@
 import os
 import json
 import logging
+import datetime
 import firebase_admin
 from firebase_admin import credentials, messaging
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +52,8 @@ def initialize_firebase():
 
 def send_fcm_push(fcm_token: str, title: str, body: str, data: dict = None):
     """
-    Sends FCM Push Notification to a target device token.
-    Returns (success: bool, response_or_error: str).
+    Sends high-priority FCM Push Notification to a target device token.
+    Works even when the app is closed, killed, or in background.
     """
     if not fcm_token:
         return False, "No FCM token provided"
@@ -71,22 +73,33 @@ def send_fcm_push(fcm_token: str, title: str, body: str, data: dict = None):
         message = messaging.Message(
             notification=messaging.Notification(
                 title=title,
-                body=body,
+                body=body or "",
             ),
             data=string_data,
             token=fcm_token,
             android=messaging.AndroidConfig(
                 priority="high",
+                ttl=datetime.timedelta(days=7),
                 notification=messaging.AndroidNotification(
+                    channel_id="default",
+                    priority="high",
                     sound="default",
-                    click_action="FLUTTER_NOTIFICATION_CLICK"
+                    default_sound=True,
+                    default_vibrate_timings=True,
+                    visibility="public"
                 )
             ),
             apns=messaging.APNSConfig(
+                headers={"apns-priority": "10"},
                 payload=messaging.APNSPayload(
                     aps=messaging.Aps(
+                        alert=messaging.ApsAlert(
+                            title=title,
+                            body=body or ""
+                        ),
                         sound="default",
-                        badge=1
+                        badge=1,
+                        content_available=True
                     )
                 )
             )
@@ -99,3 +112,4 @@ def send_fcm_push(fcm_token: str, title: str, body: str, data: dict = None):
     except Exception as e:
         logger.error(f"Error sending FCM push notification: {str(e)}")
         return False, str(e)
+
