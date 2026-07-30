@@ -814,7 +814,9 @@ def process_pending_notifications(target_reg_no=None):
     Sends FCM push notification to target members and updates is_send = True & sent_datetime = NOW.
     """
     try:
+        print(f"[DEBUG] DB Name={db.name}, Client Address={db.client.address}, send_fcm_push={send_fcm_push is not None}")
         if not send_fcm_push:
+            print("[DEBUG] send_fcm_push is None! Returning 0.")
             return 0
 
         # Bulletproof PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
@@ -833,8 +835,10 @@ def process_pending_notifications(target_reg_no=None):
             query["$or"].append({"members.reg_no": {"$regex": f"^{re.escape(clean_target)}$", "$options": "i"}})
 
         pending_docs = list(db['milestone_backend_notification'].find(query))
+        print(f"[DEBUG] Found {len(pending_docs)} pending document(s) matching query.")
         now_str = timezone.now().isoformat()
         processed_count = 0
+
 
 
         for doc in pending_docs:
