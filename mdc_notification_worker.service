@@ -1,0 +1,14 @@
+[Unit]
+Description=MDC Mobile Notification Background Worker Service
+After=network.target mongodb.service
+
+[Service]
+Type=simple
+User=apache
+WorkingDirectory=/home/apache/MDC_Mobile_backend
+ExecStart=/home/apache/MDC_Mobile_backend/venv/bin/python manage.py process_notifications --daemon --interval 5
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

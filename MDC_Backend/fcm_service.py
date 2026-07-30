@@ -13,10 +13,18 @@ def initialize_firebase():
     if firebase_admin._apps:
         return firebase_admin.get_app()
 
+    # Force load .env from base_dir if env vars not present
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_path = os.path.join(base_dir, ".env")
+    if os.path.exists(env_path):
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=env_path)
+
     # 1. Try environment variables first
     project_id = os.environ.get("FIREBASE_PROJECT_ID")
     private_key = os.environ.get("FIREBASE_PRIVATE_KEY")
     client_email = os.environ.get("FIREBASE_CLIENT_EMAIL")
+
 
     if project_id and private_key and client_email:
         # Format escaped newlines in private key if loaded from env string

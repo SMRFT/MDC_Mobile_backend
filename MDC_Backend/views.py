@@ -38,11 +38,13 @@ except ImportError:
 
 try:
     from .fcm_service import send_fcm_push
-except ImportError:
+except Exception as fcm_err1:
     try:
         from MDC_Backend.fcm_service import send_fcm_push
-    except ImportError:
+    except Exception as fcm_err2:
+        print(f"[WARNING] Top-level send_fcm_push import warning: {fcm_err2}")
         send_fcm_push = None
+
 
 
 try:
@@ -220,13 +222,14 @@ load_dotenv()  # Load from .env if present
 
 env_type = os.environ.get("ENV_CLASSIFICATION", "local")
 
-mongo_uri = os.environ.get("GLOBAL_DB_HOST")
-db_name = os.environ.get("MILESTONE_DB_NAME", "Milestone")
+mongo_uri = (os.environ.get("GLOBAL_DB_HOST") or "").strip()
+db_name = (os.environ.get("MILESTONE_DB_NAME") or "Milestone").strip()
 
 if not db_name:
     db_name = "Milestone"
 
 client = MongoClient(mongo_uri)
+
 
 # Initialize GridFS
 try:
@@ -807,24 +810,42 @@ def log_notification_event(notification_id, reg_no, title, body, fcm_token, succ
 
 
 def process_pending_notifications(target_reg_no=None):
-    """
-    Scans milestone_backend_notification collection directly in MongoDB for any document 
-    where members.is_send is False (created by any external admin project or system).
-    Sends FCM push notification to target members and updates is_send = True & sent_datetime = NOW.
-    """
+    global send_fcm_push
     try:
         if not send_fcm_push:
+            try:
+                from MDC_Backend.fcm_service import send_fcm_push as dynamic_send_fcm
+                send_fcm_push = dynamic_send_fcm
+            except Exception as dyn_err:
+                print(f"[ERROR] Dynamic import of send_fcm_push failed: {dyn_err}")
+
+        print(f"[DEBUG] DB Name={db.name}, Client Address={db.client.address}, send_fcm_push={send_fcm_push is not None}")
+        if not send_fcm_push:
+            print("[DEBUG] send_fcm_push is STILL None! Returning 0.")
             return 0
 
-        # Direct PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
-        query = {"members": {"$elemMatch": {"is_send": {"$ne": True}}}}
+
+        # Bulletproof PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
+        query = {
+            "$or": [
+                {"members.is_send": False},
+                {"members.is_send": "false"},
+                {"members.is_send": "False"},
+                {"members.is_send": None},
+                {"members.is_send": {"$exists": False}},
+                {"is_send": False}
+            ]
+        }
         if target_reg_no:
             clean_target = str(target_reg_no).strip()
-            query["members"]["$elemMatch"]["reg_no"] = {"$regex": f"^{re.escape(clean_target)}$", "$options": "i"}
+            query["$or"].append({"members.reg_no": {"$regex": f"^{re.escape(clean_target)}$", "$options": "i"}})
 
         pending_docs = list(db['milestone_backend_notification'].find(query))
+        print(f"[DEBUG] Found {len(pending_docs)} pending document(s) matching query.")
         now_str = timezone.now().isoformat()
         processed_count = 0
+
+
 
         for doc in pending_docs:
             members = doc.get('members', [])
@@ -900,6 +921,21 @@ def process_pending_notifications(target_reg_no=None):
                             m['sent_datetime'] = now_str
                             updated = True
                             processed_count += 1
+                    else:
+                        # User has no registered device token in milestone_backend_appusers
+                        log_notification_event(
+                            notification_id=noti_id,
+                            reg_no=clean_reg,
+                            title=title,
+                            body=sub,
+                            fcm_token="NO_TOKEN",
+                            success=False,
+                            fcm_response="No registered FCM device token for appuser",
+                            trigger_source="BACKGROUND_SCHEDULER" if not target_reg_no else "USER_POLL_FLUSH"
+                        )
+                        m['is_send'] = True
+                        m['sent_datetime'] = now_str
+                        updated = True
 
             if updated:
                 db['milestone_backend_notification'].update_one(
@@ -907,57 +943,18 @@ def process_pending_notifications(target_reg_no=None):
                     {"$set": {"members": members, "lastmodified_date": timezone.now()}}
                 )
 
+
         return processed_count
     except Exception as e:
         print(f"Error in process_pending_notifications: {e}")
         return 0
 
 
-_scheduler_started = False
-def ensure_notification_scheduler():
-    global _scheduler_started
-    # In Django runserver auto-reloader, ensure thread runs in main worker process
-    if os.environ.get('RUN_MAIN') != 'true' and 'runserver' in sys.argv:
-        return
-
-    if not _scheduler_started:
-        _scheduler_started = True
-        def scheduler_loop():
-            print("[BACKGROUND DAEMON] Notification Loop STARTED (Polling MongoDB every 5s)")
-            while True:
-
-                try:
-                    process_pending_notifications()
-                except Exception as e:
-                    print(f"Error in notification scheduler loop: {e}")
-                time.sleep(5)
-        t = threading.Thread(target=scheduler_loop, daemon=True)
-        t.start()
-
-ensure_notification_scheduler()
 
 
 
 
 
-
-
-_scheduler_started = False
-def ensure_notification_scheduler():
-    global _scheduler_started
-    if not _scheduler_started:
-        _scheduler_started = True
-        def scheduler_loop():
-            while True:
-                try:
-                    process_pending_notifications()
-                except Exception as e:
-                    print(f"Error in notification scheduler loop: {e}")
-                time.sleep(15)
-        t = threading.Thread(target=scheduler_loop, daemon=True)
-        t.start()
-
-ensure_notification_scheduler()
 
 
 class RegisterFCMTokenView(APIView):
