@@ -938,7 +938,8 @@ def ensure_notification_scheduler():
             while True:
                 try:
                     tick += 1
-                    count = process_pending_notifications()
+                    import MDC_Backend.views as current_views
+                    count = current_views.process_pending_notifications()
                     now_time = datetime.now().strftime("%H:%M:%S")
                     if count > 0:
                         print(f"[{now_time}] [BG DAEMON TICK #{tick}] Found and pushed {count} pending notification(s)!")
@@ -947,6 +948,7 @@ def ensure_notification_scheduler():
                 except Exception as e:
                     print(f"Error in notification scheduler loop: {e}")
                 time.sleep(5)
+
 
         t = threading.Thread(target=scheduler_loop, daemon=True)
         t.start()
