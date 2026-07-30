@@ -14,12 +14,12 @@ echo "  Starting MDC Mobile Backend Services (Linux)          "
 echo "========================================================"
 
 echo "Starting Django Server on port 2526..."
-nohup python manage.py runserver 0.0.0.0:2526 --settings=MDC_Mobile_backend.settings-test > django_server.log 2>&1 &
+python manage.py runserver 0.0.0.0:2526 --settings=MDC_Mobile_backend.settings-test > django_server.log 2>&1 &
 DJANGO_PID=$!
 echo "Django Server started on port 2526 (PID: $DJANGO_PID)"
 
 echo "Starting Notification Worker Daemon..."
-nohup python manage.py process_notifications --daemon --interval 5 > notification_worker.log 2>&1 &
+python manage.py process_notifications --daemon --interval 5 > notification_worker.log 2>&1 &
 WORKER_PID=$!
 echo "Notification Worker Daemon started (PID: $WORKER_PID)"
 
