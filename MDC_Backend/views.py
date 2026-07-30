@@ -911,12 +911,28 @@ def process_pending_notifications(target_reg_no=None):
                             m['sent_datetime'] = now_str
                             updated = True
                             processed_count += 1
+                    else:
+                        # User has no registered device token in milestone_backend_appusers
+                        log_notification_event(
+                            notification_id=noti_id,
+                            reg_no=clean_reg,
+                            title=title,
+                            body=sub,
+                            fcm_token="NO_TOKEN",
+                            success=False,
+                            fcm_response="No registered FCM device token for appuser",
+                            trigger_source="BACKGROUND_SCHEDULER" if not target_reg_no else "USER_POLL_FLUSH"
+                        )
+                        m['is_send'] = True
+                        m['sent_datetime'] = now_str
+                        updated = True
 
             if updated:
                 db['milestone_backend_notification'].update_one(
                     {"_id": doc['_id']},
                     {"$set": {"members": members, "lastmodified_date": timezone.now()}}
                 )
+
 
         return processed_count
     except Exception as e:
