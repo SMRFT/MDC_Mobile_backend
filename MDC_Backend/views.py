@@ -220,13 +220,14 @@ load_dotenv()  # Load from .env if present
 
 env_type = os.environ.get("ENV_CLASSIFICATION", "local")
 
-mongo_uri = os.environ.get("GLOBAL_DB_HOST")
-db_name = os.environ.get("MILESTONE_DB_NAME", "Milestone")
+mongo_uri = (os.environ.get("GLOBAL_DB_HOST") or "").strip()
+db_name = (os.environ.get("MILESTONE_DB_NAME") or "Milestone").strip()
 
 if not db_name:
     db_name = "Milestone"
 
 client = MongoClient(mongo_uri)
+
 
 # Initialize GridFS
 try:
