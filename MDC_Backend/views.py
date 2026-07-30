@@ -38,11 +38,13 @@ except ImportError:
 
 try:
     from .fcm_service import send_fcm_push
-except ImportError:
+except Exception as fcm_err1:
     try:
         from MDC_Backend.fcm_service import send_fcm_push
-    except ImportError:
+    except Exception as fcm_err2:
+        print(f"[WARNING] Top-level send_fcm_push import warning: {fcm_err2}")
         send_fcm_push = None
+
 
 
 try:
@@ -808,16 +810,20 @@ def log_notification_event(notification_id, reg_no, title, body, fcm_token, succ
 
 
 def process_pending_notifications(target_reg_no=None):
-    """
-    Scans milestone_backend_notification collection directly in MongoDB for any document 
-    where members.is_send is False (created by any external admin project or system).
-    Sends FCM push notification to target members and updates is_send = True & sent_datetime = NOW.
-    """
+    global send_fcm_push
     try:
+        if not send_fcm_push:
+            try:
+                from MDC_Backend.fcm_service import send_fcm_push as dynamic_send_fcm
+                send_fcm_push = dynamic_send_fcm
+            except Exception as dyn_err:
+                print(f"[ERROR] Dynamic import of send_fcm_push failed: {dyn_err}")
+
         print(f"[DEBUG] DB Name={db.name}, Client Address={db.client.address}, send_fcm_push={send_fcm_push is not None}")
         if not send_fcm_push:
-            print("[DEBUG] send_fcm_push is None! Returning 0.")
+            print("[DEBUG] send_fcm_push is STILL None! Returning 0.")
             return 0
+
 
         # Bulletproof PyMongo query for documents containing unsent members (is_send is False, "false", None, or missing)
         query = {
