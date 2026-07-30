@@ -46,43 +46,22 @@ chmod +x run_notification_worker.sh
 
 ---
 
-## 4. Linux Crontab Configuration (Every Minute One-Shot)
+## 6. Multi-Service Startup Scripts (Django Server + Worker Daemon)
 
-If you prefer Linux `cron` instead of a continuous daemon:
+### A. Windows Startup Script (`run_all_services_win.bat`)
+Runs Django Server on **Port 8000** and Notification Worker Daemon in separate CMD windows:
 
-1. Open crontab editor:
-   ```bash
-   crontab -e
-   ```
-2. Add this line to run the command every minute:
-   ```cron
-   * * * * * cd /home/apache/MDC_Mobile_backend && /home/apache/MDC_Mobile_backend/venv/bin/python manage.py process_notifications >> /home/apache/MDC_Mobile_backend/notification_cron.log 2>&1
-   ```
+```cmd
+run_all_services_win.bat
+```
 
----
+### B. Linux Startup Script (`run_all_services_linux.sh`)
+Runs Django Server on **Port 2526** and Notification Worker Daemon in background (`nohup`):
 
-## 5. Linux Systemd 24/7 Background Service (`mdc_notification_worker.service`)
+```bash
+chmod +x run_all_services_linux.sh
+./run_all_services_linux.sh
+```
+- Django Server Log: `django_server.log`
+- Notification Worker Log: `notification_worker.log`
 
-To run the worker as an automatic 24/7 Linux system service that restarts on reboot:
-
-1. Copy service file to `/etc/systemd/system/`:
-   ```bash
-   sudo cp mdc_notification_worker.service /etc/systemd/system/
-   ```
-2. Reload systemd daemon:
-   ```bash
-   sudo systemctl daemon-reload
-   ```
-3. Enable and start service:
-   ```bash
-   sudo systemctl enable mdc_notification_worker.service
-   sudo systemctl start mdc_notification_worker.service
-   ```
-4. Check service status:
-   ```bash
-   sudo systemctl status mdc_notification_worker.service
-   ```
-5. View live worker logs:
-   ```bash
-   sudo journalctl -u mdc_notification_worker.service -f
-   ```
