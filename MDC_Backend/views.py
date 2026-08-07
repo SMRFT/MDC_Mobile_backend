@@ -7,12 +7,13 @@ import tempfile
 import traceback
 import gridfs
 import certifi
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.utils import timezone
 from bson.objectid import ObjectId
 from dotenv import load_dotenv
 
 
+from django.db.models import Q
 from django.conf import settings
 from rest_framework import generics, status
 from rest_framework.views import APIView
@@ -21,19 +22,19 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from pymongo import MongoClient
 
 try:
-    from .models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals, Notification
+    from .models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals, Notification, QnaForm
 except ImportError:
-    from MDC_Backend.models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals, Notification
+    from MDC_Backend.models import Registration, PatientAttendance, appusers, GoalsAssessment, leaveform, DevelopmentGoals, Notification, QnaForm
 
 try:
     from .serializers import (
         RegistrationSerializer, PatientAttendanceSerializer,
-        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer, NotificationSerializer
+        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer, NotificationSerializer, QnaFormSerializer
     )
 except ImportError:
     from MDC_Backend.serializers import (
         RegistrationSerializer, PatientAttendanceSerializer,
-        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer, NotificationSerializer
+        GoalsAssessmentSerializer, LeaveFormSerializer, DevelopmentGoalsSerializer, NotificationSerializer, QnaFormSerializer
     )
 
 try:
@@ -1295,22 +1296,29 @@ class UserNotificationListView(APIView):
             for noti in notifications:
                 members = noti.members or []
                 for m in members:
-                    if m.get('reg_no') == reg_no:
+                    m_reg = str(m.get('reg_no') or '').rstrip('/').strip()
+                    if m_reg == reg_no or m_reg.lower() == reg_no.lower():
                         is_read = m.get('is_read', False)
                         read_dt_str = m.get('read_at') or m.get('read_datetime')
+                        
+                        # Reference timestamp for 24-hour expiration after reading
+                        ref_dt_str = read_dt_str or (noti.created_date.isoformat() if noti.created_date else None)
 
                         # If notification was opened/read, check if 24 hours (86,400 seconds) have passed
-                        if is_read and read_dt_str:
-                            try:
-                                clean_dt_str = str(read_dt_str).replace('Z', '+00:00')
-                                read_dt = datetime.fromisoformat(clean_dt_str)
-                                if read_dt.tzinfo is not None:
-                                    read_dt = read_dt.replace(tzinfo=None)
-                                elapsed_seconds = (now - read_dt).total_seconds()
-                                if elapsed_seconds > 86400: # Exclude if marked as read > 24h ago
-                                    continue
-                            except Exception:
-                                pass
+                        if is_read:
+                            if ref_dt_str:
+                                try:
+                                    clean_dt_str = str(ref_dt_str).replace('Z', '+00:00')
+                                    read_dt = datetime.fromisoformat(clean_dt_str)
+                                    if read_dt.tzinfo is not None:
+                                        read_dt = read_dt.replace(tzinfo=None)
+                                    elapsed_seconds = (now - read_dt).total_seconds()
+                                    if elapsed_seconds > 86400: # Exclude if read > 24h ago
+                                        continue
+                                except Exception:
+                                    pass
+                            else:
+                                continue
 
                         user_notifications.append({
                             "id": str(noti._id),
@@ -1332,6 +1340,97 @@ class UserNotificationListView(APIView):
             return Response(user_notifications, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class QnaFormView(APIView):
+    def get(self, request):
+        """
+        Retrieves Q&A list for active questions created within the last 1 week (7 days).
+        Queries MongoDB directly via PyMongo to completely bypass Djongo's SQL parser bugs.
+        """
+        try:
+            reg_no = request.query_params.get('reg_no') or request.query_params.get('registration_number')
+            category = request.query_params.get('category')
+            q_type = request.query_params.get('type') or request.query_params.get('question_type') # 'common', 'personal', 'all'
+            is_personal_param = request.query_params.get('is_personal')
+
+            one_week_ago = timezone.now() - timedelta(days=7)
+            
+            # Direct MongoDB Collection Access via PyMongo
+            col = db["milestone_backend_qnaform"]
+            
+            query = {
+                "is_active": {"$ne": False},
+                "created_date": {"$gte": one_week_ago}
+            }
+
+            if is_personal_param is not None:
+                is_pers_bool = str(is_personal_param).lower() in ['true', '1', 'yes']
+                if is_pers_bool and reg_no:
+                    query["is_personal"] = True
+                    query["registration_number"] = reg_no
+                elif is_pers_bool:
+                    query["is_personal"] = True
+                else:
+                    query["is_personal"] = {"$in": [False, None]}
+            elif q_type and q_type.lower() == 'common':
+                query["is_personal"] = {"$in": [False, None]}
+            elif q_type and q_type.lower() == 'personal':
+                if reg_no:
+                    query["is_personal"] = True
+                    query["registration_number"] = reg_no
+                else:
+                    query["is_personal"] = True
+            else:
+                # Default / 'All': common questions OR personal questions for this reg_no
+                if reg_no:
+                    query["$or"] = [
+                        {"is_personal": {"$in": [False, None]}},
+                        {"is_personal": True, "registration_number": reg_no}
+                    ]
+
+            if category and category.lower() != 'all':
+                query["category"] = {"$regex": f"^{re.escape(category)}$", "$options": "i"}
+
+            docs = list(col.find(query).sort("created_date", -1))
+            
+            # Format PyMongo BSON documents into JSON-friendly dicts
+            results = []
+            for doc in docs:
+                if "_id" in doc:
+                    doc["_id"] = str(doc["_id"])
+                    doc["id"] = doc["_id"]
+                if "is_personal" not in doc:
+                    doc["is_personal"] = True
+                if "answers" not in doc or doc["answers"] is None:
+                    doc["answers"] = []
+                if "created_date" in doc and hasattr(doc["created_date"], "isoformat"):
+                    doc["created_date"] = doc["created_date"].isoformat()
+                results.append(doc)
+
+            return Response(results, status=status.HTTP_200_OK)
+        except Exception as e:
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def post(self, request):
+        """
+        Creates a new Q&A question submission.
+        """
+        try:
+            data = request.data.copy()
+            serializer = QnaFormSerializer(data=data)
+            if serializer.is_valid():
+                instance = serializer.save()
+                return Response(QnaFormSerializer(instance).data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
 
 
 
