@@ -506,13 +506,14 @@ def enrich_development_goals_data(data):
         for doc in items:
             if not isinstance(doc, dict):
                 continue
-            
-            # Resolve created_by and lastmodified_by to human names
+
             c_by = doc.get('created_by')
             m_by = doc.get('lastmodified_by')
             c_by_str = str(c_by).strip() if c_by else ''
             m_by_str = str(m_by).strip() if m_by else ''
 
+            created_by_name = staff_map.get(c_by_str) or (c_by if c_by and not str(c_by).isdigit() else '')
+            lastmodified_by_name = staff_map.get(m_by_str) or (m_by if m_by and not str(m_by).isdigit() else '')
             therapist_name = created_by_name or lastmodified_by_name or ''
             if doc.get('therapist'):
                 t_key = str(doc.get('therapist')).strip()
@@ -538,11 +539,32 @@ def enrich_development_goals_data(data):
                         g['domain_name'] = domain_map.get(str(d_val), d_val)
                         g['level_name'] = level_map.get(str(l_val), l_val)
 
-                        g_th = g.get('therapist') or g.get('created_by') or g.get('doctor') or g.get('staff') or g.get('therapist_name')
+                        # Resolve therapist for this specific goal
+                        emp_name = g.get('employee_name')
+                        emp_id = str(g.get('employee_id', '')).strip()
+                        resolved_emp = staff_map.get(emp_id) if emp_id else ''
+
+                        g_th = (
+                            emp_name
+                            or resolved_emp
+                            or g.get('therapist_name')
+                            or g.get('therapist')
+                            or g.get('created_by')
+                            or g.get('doctor')
+                            or g.get('staff')
+                        )
                         g_th_name = ''
                         if g_th:
                             g_th_str = str(g_th).strip()
                             g_th_name = staff_map.get(g_th_str) or (g_th if not str(g_th).isdigit() else '')
+                        
+                        # Fallback to history employee if still empty
+                        if not g_th_name and isinstance(g.get('history'), list) and len(g.get('history')) > 0:
+                            hist_last = g.get('history')[-1]
+                            if isinstance(hist_last, dict):
+                                h_emp = str(hist_last.get('employee_id', '')).strip()
+                                g_th_name = staff_map.get(h_emp) or hist_last.get('employee_name') or ''
+
                         g['therapist_name'] = g_th_name or therapist_name
         return data
     except Exception as e:
