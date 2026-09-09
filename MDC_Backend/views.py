@@ -319,10 +319,18 @@ def enrich_goals_assessment_data(data):
 
             created_by_name = staff_map.get(c_by_str) or (c_by if c_by and not str(c_by).isdigit() else '')
             lastmodified_by_name = staff_map.get(m_by_str) or (m_by if m_by and not str(m_by).isdigit() else '')
-            
+            therapist_name = created_by_name or lastmodified_by_name or ''
+            if doc.get('therapist'):
+                t_key = str(doc.get('therapist')).strip()
+                therapist_name = staff_map.get(t_key) or (doc.get('therapist') if not str(doc.get('therapist')).isdigit() else '') or therapist_name
+            if doc.get('doctor'):
+                doc_key = str(doc.get('doctor')).strip()
+                therapist_name = staff_map.get(doc_key) or (doc.get('doctor') if not str(doc.get('doctor')).isdigit() else '') or therapist_name
+
             doc['created_by_name'] = created_by_name
             doc['lastmodified_by_name'] = lastmodified_by_name
-            doc['author_name'] = created_by_name or lastmodified_by_name or ''
+            doc['author_name'] = therapist_name
+            doc['therapist_name'] = therapist_name
 
             if 'therapy' in doc and doc['therapy']:
                 doc['therapy_name'] = therapy_map.get(str(doc['therapy']), doc['therapy'])
@@ -336,6 +344,13 @@ def enrich_goals_assessment_data(data):
                         d_val = g.get('domain', '')
                         if d_val:
                             g['domain_name'] = domain_map.get(str(d_val), d_val)
+                        
+                        g_th = g.get('therapist') or g.get('created_by') or g.get('doctor') or g.get('staff') or g.get('therapist_name')
+                        g_th_name = ''
+                        if g_th:
+                            g_th_str = str(g_th).strip()
+                            g_th_name = staff_map.get(g_th_str) or (g_th if not str(g_th).isdigit() else '')
+                        g['therapist_name'] = g_th_name or therapist_name
         return data
     except Exception as e:
         print(f"Error enriching goals assessment data: {e}")
@@ -498,12 +513,17 @@ def enrich_development_goals_data(data):
             c_by_str = str(c_by).strip() if c_by else ''
             m_by_str = str(m_by).strip() if m_by else ''
 
-            created_by_name = staff_map.get(c_by_str) or (c_by if c_by and not str(c_by).isdigit() else '')
-            lastmodified_by_name = staff_map.get(m_by_str) or (m_by if m_by and not str(m_by).isdigit() else '')
             therapist_name = created_by_name or lastmodified_by_name or ''
+            if doc.get('therapist'):
+                t_key = str(doc.get('therapist')).strip()
+                therapist_name = staff_map.get(t_key) or (doc.get('therapist') if not str(doc.get('therapist')).isdigit() else '') or therapist_name
+            if doc.get('doctor'):
+                doc_key = str(doc.get('doctor')).strip()
+                therapist_name = staff_map.get(doc_key) or (doc.get('doctor') if not str(doc.get('doctor')).isdigit() else '') or therapist_name
 
             doc['created_by_name'] = created_by_name
             doc['lastmodified_by_name'] = lastmodified_by_name
+            doc['author_name'] = therapist_name
             doc['therapist_name'] = therapist_name
 
             dev_goals = doc.get('development_goals', [])
@@ -517,8 +537,13 @@ def enrich_development_goals_data(data):
                         g['therapy_name'] = therapy_map.get(str(t_val), t_val)
                         g['domain_name'] = domain_map.get(str(d_val), d_val)
                         g['level_name'] = level_map.get(str(l_val), l_val)
-                        if therapist_name and not g.get('therapist_name'):
-                            g['therapist_name'] = therapist_name
+
+                        g_th = g.get('therapist') or g.get('created_by') or g.get('doctor') or g.get('staff') or g.get('therapist_name')
+                        g_th_name = ''
+                        if g_th:
+                            g_th_str = str(g_th).strip()
+                            g_th_name = staff_map.get(g_th_str) or (g_th if not str(g_th).isdigit() else '')
+                        g['therapist_name'] = g_th_name or therapist_name
         return data
     except Exception as e:
         print(f"Error enriching development goals: {e}")
