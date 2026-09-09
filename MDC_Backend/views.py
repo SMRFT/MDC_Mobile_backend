@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import shutil
+import json
 
 import tempfile
 import traceback
@@ -240,15 +241,116 @@ except Exception as e:
     print(f"Error connecting to MongoDB GridFS: {e}")
     fs = None
 
+def get_staff_name_map():
+    staff_map = {}
+    try:
+        g_db = client['Global']
+        for p in g_db['backend_diagnostics_profile'].find():
+            name = p.get('employeeName') or p.get('name') or ''
+            emp_id = p.get('employeeId')
+            reg_num = p.get('registrationNumber')
+            obj_id = str(p.get('_id'))
+            if emp_id and name:
+                staff_map[str(emp_id).strip()] = name
+            if reg_num and name:
+                staff_map[str(reg_num).strip()] = name
+            if obj_id and name:
+                staff_map[obj_id] = name
+    except Exception as e:
+        print(f"Error querying Global.backend_diagnostics_profile: {e}")
+
+    try:
+        for d in db['milestone_backend_consultingdoctor'].find():
+            name = d.get('name', '')
+            emp_id = d.get('employee_id')
+            doc_id = str(d.get('_id'))
+            if emp_id and name and str(emp_id).strip() not in staff_map:
+                staff_map[str(emp_id).strip()] = name
+            if doc_id and name and doc_id not in staff_map:
+                staff_map[doc_id] = name
+    except Exception as e:
+        print(f"Error querying consulting doctors: {e}")
+
+    try:
+        for e in db['milestone_backend_employeeregistration'].find():
+            name = e.get('name', '')
+            empid = e.get('empid')
+            emp_obj_id = str(e.get('_id'))
+            if empid and name and str(empid).strip() not in staff_map:
+                staff_map[str(empid).strip()] = name
+            if emp_obj_id and name and emp_obj_id not in staff_map:
+                staff_map[emp_obj_id] = name
+    except Exception as e:
+        print(f"Error querying employee registration: {e}")
+
+    return staff_map
+
+def enrich_goals_assessment_data(data):
+    try:
+        staff_map = get_staff_name_map()
+        therapy_map = {}
+        for t in db['milestone_backend_therapydetails'].find():
+            t_name = t.get('therapy_name', '')
+            if 'therapy_id' in t and t['therapy_id']:
+                therapy_map[str(t['therapy_id'])] = t_name
+            if '_id' in t:
+                therapy_map[str(t['_id'])] = t_name
+
+        domain_map = {}
+        for d in db['milestone_backend_goaldomain'].find():
+            d_name = d.get('name', '')
+            if 'domain_no' in d and d['domain_no']:
+                domain_map[str(d['domain_no'])] = d_name
+            if '_id' in d:
+                domain_map[str(d['_id'])] = d_name
+
+        is_list = isinstance(data, list)
+        items = data if is_list else [data]
+
+        for doc in items:
+            if not isinstance(doc, dict):
+                continue
+            
+            # Resolve created_by and lastmodified_by to human names
+            c_by = doc.get('created_by')
+            m_by = doc.get('lastmodified_by')
+            c_by_str = str(c_by).strip() if c_by else ''
+            m_by_str = str(m_by).strip() if m_by else ''
+
+            created_by_name = staff_map.get(c_by_str) or (c_by if c_by and not str(c_by).isdigit() else '')
+            lastmodified_by_name = staff_map.get(m_by_str) or (m_by if m_by and not str(m_by).isdigit() else '')
+            
+            doc['created_by_name'] = created_by_name
+            doc['lastmodified_by_name'] = lastmodified_by_name
+            doc['author_name'] = created_by_name or lastmodified_by_name or ''
+
+            if 'therapy' in doc and doc['therapy']:
+                doc['therapy_name'] = therapy_map.get(str(doc['therapy']), doc['therapy'])
+            goals_list = doc.get('goals', [])
+            if isinstance(goals_list, list):
+                for g in goals_list:
+                    if isinstance(g, dict):
+                        t_val = g.get('therapy', '')
+                        if t_val:
+                            g['therapy_name'] = therapy_map.get(str(t_val), t_val)
+                        d_val = g.get('domain', '')
+                        if d_val:
+                            g['domain_name'] = domain_map.get(str(d_val), d_val)
+        return data
+    except Exception as e:
+        print(f"Error enriching goals assessment data: {e}")
+        return data
+
 class GoalsAssessmentView(APIView):
     def get(self, request):
         reg_no = request.query_params.get('reg_no')
         if not reg_no:
             return Response({"error": "Registration number is required"}, status=status.HTTP_400_BAD_REQUEST)
         
-        goals = GoalsAssessment.objects.filter(registration_number=reg_no)
+        goals = GoalsAssessment.objects.filter(registration_number=reg_no).order_by('-date')
         serializer = GoalsAssessmentSerializer(goals, many=True)
-        return Response(serializer.data)
+        data = enrich_goals_assessment_data(serializer.data)
+        return Response(data)
 
     def post(self, request):
         serializer = GoalsAssessmentSerializer(data=request.data)
@@ -358,6 +460,7 @@ class GoalsAssessmentDetailView(APIView):
 
 def enrich_development_goals_data(data):
     try:
+        staff_map = get_staff_name_map()
         therapy_map = {}
         for t in db['milestone_backend_therapydetails'].find():
             t_name = t.get('therapy_name', '')
@@ -388,6 +491,21 @@ def enrich_development_goals_data(data):
         for doc in items:
             if not isinstance(doc, dict):
                 continue
+            
+            # Resolve created_by and lastmodified_by to human names
+            c_by = doc.get('created_by')
+            m_by = doc.get('lastmodified_by')
+            c_by_str = str(c_by).strip() if c_by else ''
+            m_by_str = str(m_by).strip() if m_by else ''
+
+            created_by_name = staff_map.get(c_by_str) or (c_by if c_by and not str(c_by).isdigit() else '')
+            lastmodified_by_name = staff_map.get(m_by_str) or (m_by if m_by and not str(m_by).isdigit() else '')
+            therapist_name = created_by_name or lastmodified_by_name or ''
+
+            doc['created_by_name'] = created_by_name
+            doc['lastmodified_by_name'] = lastmodified_by_name
+            doc['therapist_name'] = therapist_name
+
             dev_goals = doc.get('development_goals', [])
             if isinstance(dev_goals, list):
                 for g in dev_goals:
@@ -399,6 +517,8 @@ def enrich_development_goals_data(data):
                         g['therapy_name'] = therapy_map.get(str(t_val), t_val)
                         g['domain_name'] = domain_map.get(str(d_val), d_val)
                         g['level_name'] = level_map.get(str(l_val), l_val)
+                        if therapist_name and not g.get('therapist_name'):
+                            g['therapist_name'] = therapist_name
         return data
     except Exception as e:
         print(f"Error enriching development goals: {e}")
@@ -716,6 +836,22 @@ class AssessmentReportView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+def _parse_json_or_list(val):
+    if not val:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            if isinstance(parsed, list):
+                return parsed
+            return [parsed]
+        except Exception:
+            return [val] if val.strip() else []
+    return []
+
+
 class PatientSessionAttendanceView(APIView):
     def get(self, request):
         reg_no = request.query_params.get('reg_no')
@@ -746,6 +882,7 @@ class PatientSessionAttendanceView(APIView):
 
         try:
             records = list(db['milestone_backend_patientsessionattendance'].find(query).sort('attendance_date', 1))
+            staff_map = get_staff_name_map()
             for r in records:
                 r['_id'] = str(r['_id'])
                 if 'attendance_date' in r and isinstance(r['attendance_date'], datetime):
@@ -754,6 +891,79 @@ class PatientSessionAttendanceView(APIView):
                     r['created_date'] = r['created_date'].isoformat()
                 if 'confirmed_date' in r and isinstance(r['confirmed_date'], datetime):
                     r['confirmed_date'] = r['confirmed_date'].isoformat()
+
+                # Resolve therapist name & confirmed_by name
+                t_val = r.get('therapist', '')
+                if t_val and str(t_val).strip() in staff_map:
+                    r['therapist_name'] = staff_map[str(t_val).strip()]
+                elif not r.get('therapist_name'):
+                    r['therapist_name'] = t_val
+
+                c_by = r.get('confirmed_by', '')
+                if c_by and str(c_by).strip() in staff_map:
+                    r['confirmed_by_name'] = staff_map[str(c_by).strip()]
+                else:
+                    r['confirmed_by_name'] = c_by
+
+            # Also fetch records from milestone_backend_patientattendance
+            att_records = list(db['milestone_backend_patientattendance'].find(query).sort('attendance_date', 1))
+            for r in att_records:
+                att_date = r.get('attendance_date')
+                if not att_date:
+                    continue
+                att_date_str = att_date.strftime('%Y-%m-%d') if isinstance(att_date, datetime) else str(att_date)
+                is_approved = bool(r.get('is_approved', False))
+
+                doctors = _parse_json_or_list(r.get('consultant_doctor'))
+                doc_str = ', '.join([str(d) for d in doctors if d]) if doctors else ''
+
+                t_details = _parse_json_or_list(r.get('therapy_details'))
+                if t_details:
+                    for idx, t in enumerate(t_details):
+                        if not isinstance(t, dict):
+                            continue
+                        t_name = t.get('therapy_name') or 'Therapy'
+                        sess_count = t.get('sessions_attended') or t.get('no_of_sessions_attended') or t.get('total_no_of_session_attended') or t.get('sesion_per_therapy') or 1
+                        try:
+                            sess_count = int(sess_count)
+                        except Exception:
+                            sess_count = 1
+
+                        records.append({
+                            '_id': f"{r['_id']}_{idx}",
+                            'registration_number': r.get('registration_number'),
+                            'attendance_date': att_date_str,
+                            'therapy_name': t_name,
+                            'therapy_id': t.get('therapy_id', ''),
+                            'attended_slot': t.get('slot', '') or t.get('therapy_type', '') or '',
+                            'slot_label': t.get('slot_label', '') or f"{sess_count} sess",
+                            'therapist_name': doc_str or str(r.get('created_by', '')),
+                            'sessions_attended': sess_count,
+                            'is_confirmed': is_approved,
+                            'confirmed_by': 'Admin' if is_approved else '',
+                            'confirmed_by_name': 'Approved' if is_approved else 'Pending',
+                            'is_active': r.get('is_active', True),
+                            'source': 'milestone_backend_patientattendance'
+                        })
+                else:
+                    sess_count = int(r.get('session', 1) or 1)
+                    records.append({
+                        '_id': str(r['_id']),
+                        'registration_number': r.get('registration_number'),
+                        'attendance_date': att_date_str,
+                        'therapy_name': 'General Therapy',
+                        'therapy_id': '',
+                        'attended_slot': '',
+                        'slot_label': f"{sess_count} sess",
+                        'therapist_name': doc_str or str(r.get('created_by', '')),
+                        'sessions_attended': sess_count,
+                        'is_confirmed': is_approved,
+                        'confirmed_by': 'Admin' if is_approved else '',
+                        'confirmed_by_name': 'Approved' if is_approved else 'Pending',
+                        'is_active': r.get('is_active', True),
+                        'source': 'milestone_backend_patientattendance'
+                    })
+
             return Response(records)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -771,14 +981,28 @@ class ConfirmSessionAttendanceView(APIView):
     def post(self, request, pk):
         try:
             confirmed_by = request.data.get('confirmed_by', 'Staff')
+            target_id = pk.split('_')[0] if '_' in pk else pk
+
+            # Try updating milestone_backend_patientsessionattendance first
             result = db['milestone_backend_patientsessionattendance'].update_one(
-                {'_id': ObjectId(pk)},
+                {'_id': ObjectId(target_id)},
                 {'$set': {
                     'is_confirmed': True,
                     'confirmed_by': confirmed_by,
                     'confirmed_date': datetime.now()
                 }}
             )
+
+            # If not in session collection, try patientattendance collection
+            if result.matched_count == 0:
+                result = db['milestone_backend_patientattendance'].update_one(
+                    {'_id': ObjectId(target_id)},
+                    {'$set': {
+                        'is_approved': True,
+                        'lastmodified_date': datetime.now()
+                    }}
+                )
+
             if result.matched_count == 0:
                 return Response({"error": "Session record not found"}, status=status.HTTP_404_NOT_FOUND)
             return Response({"message": "Session confirmed successfully"}, status=status.HTTP_200_OK)
